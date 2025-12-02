@@ -16,44 +16,224 @@ const CONTRACT_ADDRESS = '0xda2428f678902607e0360AD630266AFde96e4F30' as const;
 // Official Push Chain RPC URL from documentation
 const RPC_URL = 'https://evm.rpc-testnet-donut-node1.push.org/';
 
-// Contract ABI (Full JSON for Event Parsing)
+// Contract ABI (Full JSON provided by user)
 const ROULETTE_ABI_JSON = [
   {
-    "inputs": [],
+    "type": "constructor",
+    "payable": false,
+    "inputs": []
+  },
+  {
+    "type": "fallback",
+    "payable": true,
+    "stateMutability": "payable"
+  },
+  {
+    "type": "receive",
+    "payable": true,
+    "stateMutability": "payable"
+  },
+  {
+    "type": "function",
     "name": "quickSpin",
-    "outputs": [{"internalType": "uint256", "name": "prize", "type": "uint256"}],
-    "stateMutability": "payable",
-    "type": "function"
-  },
-  {
+    "constant": false,
+    "payable": false,
     "inputs": [],
-    "name": "getStats",
     "outputs": [
-      {"internalType": "uint256", "name": "contractBalance", "type": "uint256"},
-      {"internalType": "uint256", "name": "availableBalance", "type": "uint256"},
-      {"internalType": "uint256", "name": "spinCost", "type": "uint256"},
-      {"internalType": "bool", "name": "isPaused", "type": "bool"}
+      {
+        "type": "uint256",
+        "name": "prize"
+      }
     ],
-    "stateMutability": "view",
-    "type": "function"
+    "stateMutability": "nonpayable"
   },
   {
-    "anonymous": false,
+    "type": "function",
+    "name": "getStats",
+    "constant": true,
+    "stateMutability": "view",
+    "payable": false,
+    "inputs": [],
+    "outputs": [
+      {
+        "type": "uint256",
+        "name": "contractBalance"
+      },
+      {
+        "type": "uint256",
+        "name": "availableBalance"
+      },
+      {
+        "type": "uint256",
+        "name": "spinCost"
+      },
+      {
+        "type": "bool",
+        "name": "isPaused"
+      }
+    ]
+  },
+  {
+    "type": "function",
+    "name": "getPlayerStats",
+    "constant": true,
+    "stateMutability": "view",
+    "payable": false,
     "inputs": [
-      {"indexed": true, "internalType": "address", "name": "player", "type": "address"},
-      {"indexed": false, "internalType": "uint256", "name": "betAmount", "type": "uint256"},
-      {"indexed": false, "internalType": "uint256", "name": "prizeAmount", "type": "uint256"},
-      {"indexed": false, "internalType": "uint256", "name": "randomNumber", "type": "uint256"},
-      {"indexed": false, "internalType": "uint256", "name": "timestamp", "type": "uint256"}
+      {
+        "type": "address",
+        "name": "player"
+      }
     ],
+    "outputs": [
+      {
+        "type": "uint256",
+        "name": "totalSpins"
+      },
+      {
+        "type": "uint256",
+        "name": "totalWins"
+      },
+      {
+        "type": "uint256",
+        "name": "lastSpinTime"
+      },
+      {
+        "type": "uint256",
+        "name": "canSpinAgainAt"
+      }
+    ]
+  },
+  {
+    "type": "event",
     "name": "SpinRevealed",
-    "type": "event"
+    "inputs": [
+      {
+        "type": "address",
+        "name": "player",
+        "indexed": true
+      },
+      {
+        "type": "uint256",
+        "name": "betAmount",
+        "indexed": false
+      },
+      {
+        "type": "uint256",
+        "name": "prizeAmount",
+        "indexed": false
+      },
+      {
+        "type": "uint256",
+        "name": "randomNumber",
+        "indexed": false
+      },
+      {
+        "type": "uint256",
+        "name": "timestamp",
+        "indexed": false
+      }
+    ],
+    "anonymous": false
+  },
+  {
+    "type": "function",
+    "name": "owner",
+    "constant": true,
+    "stateMutability": "view",
+    "payable": false,
+    "inputs": [],
+    "outputs": [
+      {
+        "type": "address"
+      }
+    ]
+  },
+  {
+    "type": "function",
+    "name": "pause",
+    "constant": false,
+    "payable": false,
+    "inputs": [],
+    "outputs": []
+  },
+  {
+    "type": "function",
+    "name": "paused",
+    "constant": true,
+    "stateMutability": "view",
+    "payable": false,
+    "inputs": [],
+    "outputs": [
+      {
+        "type": "bool"
+      }
+    ]
+  },
+  {
+    "type": "function",
+    "name": "renounceOwnership",
+    "constant": false,
+    "payable": false,
+    "inputs": [],
+    "outputs": []
+  },
+  {
+    "type": "function",
+    "name": "spin",
+    "constant": false,
+    "payable": true,
+    "inputs": [],
+    "outputs": []
+  },
+  {
+    "type": "function",
+    "name": "transferOwnership",
+    "constant": false,
+    "payable": false,
+    "inputs": [
+      {
+        "type": "address",
+        "name": "newOwner"
+      }
+    ],
+    "outputs": []
+  },
+  {
+    "type": "function",
+    "name": "unpause",
+    "constant": false,
+    "payable": false,
+    "inputs": [],
+    "outputs": []
+  },
+  {
+    "type": "function",
+    "name": "withdraw",
+    "constant": false,
+    "payable": false,
+    "inputs": [],
+    "outputs": []
+  },
+  {
+    "type": "function",
+    "name": "withdrawTokens",
+    "constant": false,
+    "payable": false,
+    "inputs": [
+      {
+        "type": "address",
+        "name": "token"
+      }
+    ],
+    "outputs": []
   }
 ];
 
-// Human-Readable ABI for Transaction Encoding (Matches Docs)
+// Human-Readable ABI for Transaction Encoding
+// NOTE: 'spin' is payable, 'quickSpin' is NOT payable. We use 'spin' to send the bet.
 const ROULETTE_ABI_HUMAN = [
-  'function quickSpin() payable returns (uint256)'
+  'function spin() payable'
 ];
 
 const PRIZES = [
@@ -173,13 +353,15 @@ const RouletteGame = () => {
       setIsRefreshing(true);
       try {
         const account = pushChainClient.universal.account;
-        const address = account && typeof account === 'string' && account.includes(':') ? account.split(':').pop() : account;
+        // In some versions account is a string, in others an object. Safely handle string.
+        const accountStr = typeof account === 'string' ? account : (account as any)?.address;
+        const address = accountStr && accountStr.includes(':') ? accountStr.split(':').pop() : accountStr;
         
-        setUserAddress(address as string || '');
+        setUserAddress(address || '');
 
         if (address) {
           const provider = new ethers.JsonRpcProvider(RPC_URL);
-          const bal = await provider.getBalance(address as string);
+          const bal = await provider.getBalance(address);
           setBalance(ethers.formatEther(bal));
         }
       } catch (e) {
@@ -230,14 +412,15 @@ const RouletteGame = () => {
     setError(null);
 
     try {
-      // 1. Generate encoded function data using PushChain helper (exactly as in docs)
+      // 1. Generate encoded function data using PushChain helper
+      // NOTE: Using 'spin' because it is PAYABLE. 'quickSpin' is nonpayable.
       const data = PushChain.utils.helpers.encodeTxData({
         abi: ROULETTE_ABI_HUMAN,
-        functionName: 'quickSpin',
+        functionName: 'spin',
         args: []
       });
       
-      // 2. Calculate value using PushChain helper (as in docs)
+      // 2. Calculate value using PushChain helper
       const costInWei = PushChain.utils.helpers.parseUnits(spinCost, 18);
       
       console.log('Sending transaction:', {
@@ -250,7 +433,7 @@ const RouletteGame = () => {
       const txResult = await pushChainClient.universal.sendTransaction({
         to: CONTRACT_ADDRESS,
         value: costInWei, // Send BigInt directly
-        data: data,
+        data: data as any,
       });
 
       // Handle potential return types (Hash string or Response object)
