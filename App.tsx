@@ -14,7 +14,7 @@ import {
 // ⚠️ REPLACE WITH YOUR DEPLOYED CONTRACT ADDRESS
 const CONTRACT_ADDRESS = '0xda2428f678902607e0360AD630266AFde96e4F30' as const;
 // Updated RPC URL to match the provided reference code for better reliability
-const RPC_URL = 'https://evm.rpc-testnet-donut-node1.push.org/';
+const RPC_URL = 'https://evm.donut.rpc.push.org/';
 
 // Contract ABI
 const ROULETTE_ABI = [
