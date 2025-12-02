@@ -261,9 +261,9 @@ const RouletteGame = () => {
       const costInWei = ethers.parseEther(spinCost);
       
       const txResponse = await pushChainClient.universal.sendTransaction({
-        to: CONTRACT_ADDRESS as `0x${string}`,
+        to: CONTRACT_ADDRESS as unknown as `0x${string}`,
         value: costInWei, // Value sent as BigInt
-        data: spinData as `0x${string}`
+        data: spinData as unknown as `0x${string}`
       });
 
       const txReceipt = await txResponse.wait();
