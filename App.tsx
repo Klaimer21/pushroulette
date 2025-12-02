@@ -164,14 +164,11 @@ const RouletteGame = () => {
   const [isSpinning, setIsSpinning] = useState(false);
   const [currentPrize, setCurrentPrize] = useState<any>(null);
   const [showResult, setShowResult] = useState(false);
-  const [balance, setBalance] = useState('0');
   const [totalSpins, setTotalSpins] = useState(0);
   const [totalWins, setTotalWins] = useState(0);
   const [history, setHistory] = useState<any[]>([]);
   const [error, setError] = useState<React.ReactNode | null>(null);
   const [spinCost, setSpinCost] = useState<string>('0.1'); // Default fallback
-  const [userAddress, setUserAddress] = useState<string>('');
-  const [isBalanceLoading, setIsBalanceLoading] = useState(false);
 
   const isConnected = connectionStatus === PushUI.CONSTANTS.CONNECTION.STATUS.CONNECTED;
 
@@ -191,45 +188,6 @@ const RouletteGame = () => {
     };
     fetchGameStats();
   }, []);
-
-  // 2. Fetch User Balance
-  const fetchBalance = async () => {
-    if (isConnected && pushChainClient && isInitialized) {
-      setIsBalanceLoading(true);
-      try {
-        // Ensure we are using the correct RPC for balance checks
-        const provider = new ethers.JsonRpcProvider(RPC_URL);
-        
-        let ueaAddress = pushChainClient?.universal?.account;
-        
-        if (ueaAddress) {
-          // Handle CAIP-10 addresses if present (e.g. eip155:97:0x...)
-          if (ueaAddress.includes(':')) {
-            const parts = ueaAddress.split(':');
-            ueaAddress = parts[parts.length - 1];
-          }
-
-          if (ethers.isAddress(ueaAddress)) {
-              setUserAddress(ueaAddress);
-              const balanceWei = await provider.getBalance(ueaAddress);
-              const balancePC = ethers.formatEther(balanceWei.toString());
-              const formatted = parseFloat(balancePC).toFixed(4);
-              setBalance(formatted);
-          }
-        }
-      } catch (err) {
-        console.error('Balance fetch error:', err);
-      } finally {
-        setIsBalanceLoading(false);
-      }
-    }
-  };
-
-  useEffect(() => {
-    fetchBalance();
-    const interval = setInterval(fetchBalance, 10000);
-    return () => clearInterval(interval);
-  }, [isConnected, pushChainClient, isInitialized]);
 
   const selectPrize = () => {
     const random = Math.random() * 100;
@@ -257,12 +215,12 @@ const RouletteGame = () => {
       });
       
       // Use dynamic spin cost and convert to BigInt for transaction
-      // This matches the pattern in the reference code where BigInt is required for 'value'
       const costInWei = ethers.parseEther(spinCost);
       
       const txResponse = await pushChainClient.universal.sendTransaction({
-        to: CONTRACT_ADDRESS as any,
+        to: CONTRACT_ADDRESS,
         value: costInWei, // Value sent as BigInt
+        // Cast to any to avoid strict TypeScript validation error (0x string)
         data: spinData as any
       });
 
@@ -297,8 +255,6 @@ const RouletteGame = () => {
           setTotalWins(prev => prev + prize.amount);
         }
         setHistory(prev => [{ prize, timestamp: new Date().toLocaleTimeString(), txHash: txResponse.hash }, ...prev.slice(0, 9)]);
-        // Force refresh balance after spin
-        fetchBalance();
       }, 5000);
 
     } catch (err: any) {
@@ -311,9 +267,9 @@ const RouletteGame = () => {
       if (errorMessage.includes("insufficient funds") || errorMessage.includes("exceeds the balance")) {
          setError(
             <div className="flex flex-col items-center gap-2">
-                <span className="font-bold">Insufficient Balance on Testnet!</span>
+                <span className="font-bold">Insufficient Balance!</span>
                 <span className="text-xs">
-                    Your wallet ({userAddress.slice(0,6)}...) has 0 PC on the Donut RPC node.
+                    It looks like you don't have enough PC tokens to cover the spin cost + gas.
                 </span>
                 <a 
                   href="https://faucet.push.org" 
@@ -354,18 +310,6 @@ const RouletteGame = () => {
             >
               Need Tokens?
             </a>
-            {isConnected && isInitialized && pushChainClient && (
-              <div className="text-right hidden md:block">
-                <div className="flex items-center gap-2 justify-end">
-                    <div className="text-sm text-gray-400">Balance</div>
-                    <button onClick={fetchBalance} className="text-gray-400 hover:text-white" title="Refresh Balance">
-                        <svg className={`w-3 h-3 ${isBalanceLoading ? 'animate-spin' : ''}`} fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"></path></svg>
-                    </button>
-                </div>
-                <div className="text-xl font-bold leading-none">{balance} PC</div>
-                {userAddress && <div className="text-[10px] text-gray-500 font-mono mt-1">{userAddress.slice(0,6)}...{userAddress.slice(-4)}</div>}
-              </div>
-            )}
             <PushUniversalAccountButton />
           </div>
         </div>
@@ -427,13 +371,11 @@ const RouletteGame = () => {
                   >
                     {isSpinning ? 'Spinning...' : `Spin (${spinCost} PC)`}
                   </button>
-                  {parseFloat(balance) === 0 && (
-                      <div className="mt-2">
-                        <a href="https://faucet.push.org" target="_blank" className="text-yellow-400 text-sm hover:underline">
-                            Get Testnet Tokens to Play
-                        </a>
-                      </div>
-                  )}
+                  <div className="mt-2">
+                    <a href="https://faucet.push.org" target="_blank" className="text-yellow-400 text-sm hover:underline">
+                        Get Testnet Tokens to Play
+                    </a>
+                  </div>
                 </div>
               </div>
 
@@ -455,10 +397,6 @@ const RouletteGame = () => {
               <div className="bg-gray-800/50 backdrop-blur-sm rounded-2xl p-6 border border-purple-800/30">
                 <h3 className="text-xl font-bold mb-4">Your Stats</h3>
                 <div className="space-y-3">
-                  <div className="flex justify-between items-center">
-                    <span className="text-gray-400">Balance</span>
-                    <span className="font-bold text-xl text-purple-400">{balance} PC</span>
-                  </div>
                   <div className="flex justify-between items-center">
                     <span className="text-gray-400">Total Spins</span>
                     <span className="font-bold text-xl">{totalSpins}</span>
