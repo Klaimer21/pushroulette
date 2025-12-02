@@ -168,11 +168,41 @@ const RouletteGame = () => {
   const [totalWins, setTotalWins] = useState(0);
   const [history, setHistory] = useState<any[]>([]);
   const [error, setError] = useState<React.ReactNode | null>(null);
-  const [spinCost, setSpinCost] = useState<string>('0.1'); // Default fallback
+  const [spinCost, setSpinCost] = useState<string>('0.1'); 
+  const [balance, setBalance] = useState<string>('0');
+  const [userAddress, setUserAddress] = useState<string>('');
+  const [isRefreshing, setIsRefreshing] = useState(false);
 
   const isConnected = connectionStatus === PushUI.CONSTANTS.CONNECTION.STATUS.CONNECTED;
 
-  // 1. Fetch Contract Stats (Real Spin Cost)
+  // Fetch Account Info & Balance
+  const fetchAccountInfo = async () => {
+    if (isConnected && pushChainClient) {
+      setIsRefreshing(true);
+      try {
+        const address = pushChainClient.universal.account;
+        // Sanitize if it's CAIP format (eip155:123:0x...)
+        const cleanAddress = address && address.includes(':') ? address.split(':').pop() : address;
+        setUserAddress(cleanAddress || '');
+
+        if (cleanAddress) {
+          const provider = new ethers.JsonRpcProvider(RPC_URL);
+          const bal = await provider.getBalance(cleanAddress);
+          setBalance(ethers.formatEther(bal));
+        }
+      } catch (e) {
+        console.error("Error fetching account info", e);
+      } finally {
+        setIsRefreshing(false);
+      }
+    }
+  };
+
+  useEffect(() => {
+    fetchAccountInfo();
+  }, [isConnected, pushChainClient]);
+
+  // Fetch Contract Stats (Real Spin Cost)
   useEffect(() => {
     const fetchGameStats = async () => {
       try {
@@ -226,6 +256,9 @@ const RouletteGame = () => {
 
       const txReceipt = await txResponse.wait();
       
+      // Refresh balance after spin
+      fetchAccountInfo();
+
       let prizeAmount = 0;
       try {
         const iface = new ethers.Interface(ROULETTE_ABI);
@@ -268,8 +301,10 @@ const RouletteGame = () => {
          setError(
             <div className="flex flex-col items-center gap-2">
                 <span className="font-bold">Insufficient Balance!</span>
-                <span className="text-xs">
-                    It looks like you don't have enough PC tokens to cover the spin cost + gas.
+                <span className="text-xs text-center">
+                    The account <strong>{userAddress ? userAddress.slice(0, 6) + '...' + userAddress.slice(-4) : 'connected'}</strong> has {balance} PC.
+                    <br/>
+                    Spin cost + gas requires approx {spinCost} PC.
                 </span>
                 <a 
                   href="https://faucet.push.org" 
@@ -302,14 +337,23 @@ const RouletteGame = () => {
           </div>
           
           <div className="flex items-center gap-4">
-            <a 
-              href="https://faucet.push.org" 
-              target="_blank" 
-              rel="noopener noreferrer"
-              className="hidden md:block text-xs text-yellow-400 hover:text-yellow-300 underline"
-            >
-              Need Tokens?
-            </a>
+             {isConnected && userAddress && (
+              <div className="hidden md:flex flex-col items-end mr-2">
+                 <div className="text-xs text-gray-400 flex items-center gap-1">
+                    {userAddress.slice(0, 6)}...{userAddress.slice(-4)}
+                 </div>
+                 <div className="text-sm font-bold flex items-center gap-2">
+                    {parseFloat(balance).toFixed(4)} PC
+                    <button 
+                      onClick={fetchAccountInfo} 
+                      className={`text-gray-400 hover:text-white ${isRefreshing ? 'animate-spin' : ''}`}
+                      title="Refresh Balance"
+                    >
+                      ↻
+                    </button>
+                 </div>
+              </div>
+            )}
             <PushUniversalAccountButton />
           </div>
         </div>
@@ -372,8 +416,9 @@ const RouletteGame = () => {
                     {isSpinning ? 'Spinning...' : `Spin (${spinCost} PC)`}
                   </button>
                   <div className="mt-2">
-                    <a href="https://faucet.push.org" target="_blank" className="text-yellow-400 text-sm hover:underline">
-                        Get Testnet Tokens to Play
+                     <span className="text-gray-500 text-xs mr-2">Balance: {parseFloat(balance).toFixed(3)} PC</span>
+                    <a href="https://faucet.push.org" target="_blank" className="text-yellow-400 text-xs hover:underline">
+                        Get Testnet Tokens
                     </a>
                   </div>
                 </div>
