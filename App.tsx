@@ -230,12 +230,6 @@ const ROULETTE_ABI_JSON = [
   }
 ];
 
-// Human-Readable ABI for Transaction Encoding
-// NOTE: 'spin' is payable, 'quickSpin' is NOT payable. We use 'spin' to send the bet.
-const ROULETTE_ABI_HUMAN = [
-  'function spin() payable'
-];
-
 const PRIZES = [
   { amount: 0, probability: 60, label: 'Try Again', gradient: ['#4B5563', '#374151'] },
   { amount: 0.05, probability: 30, label: '0.05 PC', gradient: ['#3B82F6', '#2563EB'] },
@@ -413,9 +407,9 @@ const RouletteGame = () => {
 
     try {
       // 1. Generate encoded function data using PushChain helper
-      // NOTE: Using 'spin' because it is PAYABLE. 'quickSpin' is nonpayable.
+      // Use the Full JSON ABI to ensure function "spin" is found correctly
       const data = PushChain.utils.helpers.encodeTxData({
-        abi: ROULETTE_ABI_HUMAN,
+        abi: ROULETTE_ABI_JSON,
         functionName: 'spin',
         args: []
       });
