@@ -162,6 +162,7 @@ const RouletteGame = () => {
   const { PushChain } = usePushChain();
   
   const [isSpinning, setIsSpinning] = useState(false);
+  const [isProcessing, setIsProcessing] = useState(false);
   const [currentPrize, setCurrentPrize] = useState<any>(null);
   const [showResult, setShowResult] = useState(false);
   const [totalSpins, setTotalSpins] = useState(0);
@@ -230,9 +231,9 @@ const RouletteGame = () => {
   };
 
   const handleSpin = async () => {
-    if (isSpinning || !isConnected || !pushChainClient || !isInitialized) return;
+    if (isSpinning || isProcessing || !isConnected || !pushChainClient || !isInitialized) return;
     
-    setIsSpinning(true);
+    setIsProcessing(true);
     setShowResult(false);
     setCurrentPrize(null);
     setError(null);
@@ -251,10 +252,15 @@ const RouletteGame = () => {
         to: CONTRACT_ADDRESS,
         value: costInWei, // Value sent as BigInt
         // Cast to any to avoid strict TypeScript validation error (0x string)
-        data: spinData as any
+        data: spinData as any,
+        gasLimit: BigInt(500000) // Manually set gas limit to avoid estimation errors on low balance
       });
 
       const txReceipt = await txResponse.wait();
+      
+      // Transaction confirmed, now start the spin animation
+      setIsProcessing(false);
+      setIsSpinning(true);
       
       // Refresh balance after spin
       fetchAccountInfo();
@@ -293,6 +299,7 @@ const RouletteGame = () => {
     } catch (err: any) {
       console.error('Transaction failed:', err);
       setIsSpinning(false);
+      setIsProcessing(false);
       
       const errorMessage = err.message || JSON.stringify(err);
       
@@ -317,7 +324,7 @@ const RouletteGame = () => {
             </div>
          );
       } else {
-         setError('Transaction failed. Please try again.');
+         setError(errorMessage.slice(0, 100) + '...');
       }
     }
   };
@@ -406,14 +413,14 @@ const RouletteGame = () => {
                 <div className="mt-8 text-center">
                   <button
                     onClick={handleSpin}
-                    disabled={isSpinning || !isInitialized}
+                    disabled={isSpinning || isProcessing || !isInitialized}
                     className={`px-12 py-4 rounded-xl font-bold text-xl transition-all ${
-                      isSpinning || !isInitialized
+                      isSpinning || isProcessing || !isInitialized
                         ? 'bg-gray-700 cursor-not-allowed'
                         : 'bg-gradient-to-r from-purple-600 to-pink-600 hover:from-purple-700 hover:to-pink-700 shadow-lg hover:shadow-purple-500/50 hover:scale-105'
                     }`}
                   >
-                    {isSpinning ? 'Spinning...' : `Spin (${spinCost} PC)`}
+                    {isSpinning ? 'Spinning...' : isProcessing ? 'Confirming...' : `Spin (${spinCost} PC)`}
                   </button>
                   <div className="mt-2">
                      <span className="text-gray-500 text-xs mr-2">Balance: {parseFloat(balance).toFixed(3)} PC</span>
