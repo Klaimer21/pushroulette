@@ -14,10 +14,10 @@ import {
 // ⚠️ REPLACE WITH YOUR DEPLOYED CONTRACT ADDRESS
 const CONTRACT_ADDRESS = '0xda2428f678902607e0360AD630266AFde96e4F30' as const;
 // Official Push Chain RPC URL from documentation
-const RPC_URL = 'https://evm.donut.rpc.push.org/';
+const RPC_URL = 'https://evm.rpc-testnet-donut-node1.push.org/';
 
-// Contract ABI
-const ROULETTE_ABI = [
+// Contract ABI (Full JSON for Event Parsing)
+const ROULETTE_ABI_JSON = [
   {
     "inputs": [],
     "name": "quickSpin",
@@ -38,18 +38,6 @@ const ROULETTE_ABI = [
     "type": "function"
   },
   {
-    "inputs": [{"internalType": "address", "name": "player", "type": "address"}],
-    "name": "getPlayerStats",
-    "outputs": [
-      {"internalType": "uint256", "name": "totalSpins", "type": "uint256"},
-      {"internalType": "uint256", "name": "totalWins", "type": "uint256"},
-      {"internalType": "uint256", "name": "lastSpinTime", "type": "uint256"},
-      {"internalType": "uint256", "name": "canSpinAgainAt", "type": "uint256"}
-    ],
-    "stateMutability": "view",
-    "type": "function"
-  },
-  {
     "anonymous": false,
     "inputs": [
       {"indexed": true, "internalType": "address", "name": "player", "type": "address"},
@@ -61,6 +49,11 @@ const ROULETTE_ABI = [
     "name": "SpinRevealed",
     "type": "event"
   }
+];
+
+// Human-Readable ABI for Transaction Encoding (Matches Docs)
+const ROULETTE_ABI_HUMAN = [
+  'function quickSpin() payable returns (uint256)'
 ];
 
 const PRIZES = [
@@ -179,16 +172,14 @@ const RouletteGame = () => {
     if (isConnected && pushChainClient) {
       setIsRefreshing(true);
       try {
-        // Get account from pushChainClient (это правильный способ по документации)
         const account = pushChainClient.universal.account;
+        const address = account && typeof account === 'string' && account.includes(':') ? account.split(':').pop() : account;
         
-        // Извлекаем address из account object
-        const address = account?.address || '';
-        setUserAddress(address);
+        setUserAddress(address as string || '');
 
         if (address) {
           const provider = new ethers.JsonRpcProvider(RPC_URL);
-          const bal = await provider.getBalance(address);
+          const bal = await provider.getBalance(address as string);
           setBalance(ethers.formatEther(bal));
         }
       } catch (e) {
@@ -208,7 +199,7 @@ const RouletteGame = () => {
     const fetchGameStats = async () => {
       try {
         const provider = new ethers.JsonRpcProvider(RPC_URL);
-        const contract = new ethers.Contract(CONTRACT_ADDRESS, ROULETTE_ABI, provider);
+        const contract = new ethers.Contract(CONTRACT_ADDRESS, ROULETTE_ABI_JSON, provider);
         const stats = await contract.getStats();
         const cost = ethers.formatEther(stats.spinCost);
         console.log("Contract spin cost:", cost);
@@ -239,33 +230,42 @@ const RouletteGame = () => {
     setError(null);
 
     try {
-      // Encode transaction data using PushChain helper (правильный способ из документации)
+      // 1. Generate encoded function data using PushChain helper (exactly as in docs)
       const data = PushChain.utils.helpers.encodeTxData({
-        abi: ROULETTE_ABI,
+        abi: ROULETTE_ABI_HUMAN,
         functionName: 'quickSpin',
         args: []
       });
       
-      // Use dynamic spin cost - передаем как BigInt (из документации)
-      const costInWei = ethers.parseEther(spinCost);
+      // 2. Calculate value using PushChain helper (as in docs)
+      const costInWei = PushChain.utils.helpers.parseUnits(spinCost, 18);
       
-      console.log('Sending transaction with:', {
+      console.log('Sending transaction:', {
         to: CONTRACT_ADDRESS,
         value: costInWei.toString(),
         data
       });
 
-      // Send transaction (точно как в примере из документации)
-      const tx = await pushChainClient.universal.sendTransaction({
+      // 3. Send the transaction using Push Chain SDK
+      const txResult = await pushChainClient.universal.sendTransaction({
         to: CONTRACT_ADDRESS,
-        value: costInWei, // Передаем BigInt напрямую
+        value: costInWei, // Send BigInt directly
         data: data,
       });
 
-      console.log('Transaction sent:', tx.hash);
+      // Handle potential return types (Hash string or Response object)
+      const txHash = typeof txResult === 'string' ? txResult : txResult.hash;
+      console.log('Transaction sent. Hash:', txHash);
       
-      // Wait for transaction confirmation
-      const txReceipt = await tx.wait();
+      // 4. Wait for transaction confirmation using standard Ethers provider
+      const provider = new ethers.JsonRpcProvider(RPC_URL);
+      console.log('Waiting for confirmation...');
+      
+      // Fetch transaction to get the object that has .wait()
+      const txResponse = await provider.getTransaction(txHash);
+      if (!txResponse) throw new Error("Transaction not found on network yet.");
+      
+      const txReceipt = await txResponse.wait();
       console.log('Transaction confirmed:', txReceipt);
       
       // Transaction confirmed, now start the spin animation
@@ -278,16 +278,18 @@ const RouletteGame = () => {
       // Parse event logs to get prize amount
       let prizeAmount = 0;
       try {
-        const iface = new ethers.Interface(ROULETTE_ABI);
-        for (const log of txReceipt.logs) {
-          try {
-            const parsed = iface.parseLog({ topics: log.topics, data: log.data });
-            if (parsed && parsed.name === 'SpinRevealed') {
-              prizeAmount = Number(ethers.formatUnits(parsed.args.prizeAmount, 18));
-              console.log('Prize amount from event:', prizeAmount);
-              break;
+        const iface = new ethers.Interface(ROULETTE_ABI_JSON);
+        if (txReceipt && txReceipt.logs) {
+            for (const log of txReceipt.logs) {
+              try {
+                const parsed = iface.parseLog({ topics: Array.from(log.topics), data: log.data });
+                if (parsed && parsed.name === 'SpinRevealed') {
+                  prizeAmount = Number(ethers.formatUnits(parsed.args.prizeAmount, 18));
+                  console.log('Prize amount from event:', prizeAmount);
+                  break;
+                }
+              } catch (e) { continue; }
             }
-          } catch (e) { continue; }
         }
       } catch (parseError) {
         console.warn('Could not parse logs, falling back to probability', parseError);
@@ -305,7 +307,7 @@ const RouletteGame = () => {
         if (prize.amount > 0) {
           setTotalWins(prev => prev + prize.amount);
         }
-        setHistory(prev => [{ prize, timestamp: new Date().toLocaleTimeString(), txHash: tx.hash }, ...prev.slice(0, 9)]);
+        setHistory(prev => [{ prize, timestamp: new Date().toLocaleTimeString(), txHash: txHash }, ...prev.slice(0, 9)]);
       }, 5000);
 
     } catch (err: any) {
@@ -314,9 +316,7 @@ const RouletteGame = () => {
       setIsProcessing(false);
       
       const errorMessage = err.message || JSON.stringify(err);
-      console.log('Full error:', err);
       
-      // Check for specific insufficient funds error
       if (errorMessage.includes("insufficient funds") || errorMessage.includes("exceeds the balance")) {
          setError(
             <div className="flex flex-col items-center gap-2">
