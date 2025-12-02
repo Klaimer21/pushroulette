@@ -13,8 +13,8 @@ import {
 
 // ⚠️ REPLACE WITH YOUR DEPLOYED CONTRACT ADDRESS
 const CONTRACT_ADDRESS = '0xda2428f678902607e0360AD630266AFde96e4F30' as const;
-// Updated RPC URL to match the provided reference code for better reliability
-const RPC_URL = 'https://evm.rpc-testnet-donut-node1.push.org/';
+// Official Push Chain RPC URL from documentation
+const RPC_URL = 'https://evm.donut.rpc.push.org/';
 
 // Contract ABI
 const ROULETTE_ABI = [
@@ -105,8 +105,6 @@ const RouletteWheel = ({ isSpinning }: { isSpinning: boolean }) => {
             const largeArcFlag = segmentAngle > 180 ? 1 : 0;
             const pathData = `M 160 160 L ${x1} ${y1} A 160 160 0 ${largeArcFlag} 1 ${x2} ${y2} Z`;
             
-            // Text placement logic:
-            // Place text at top 12 o'clock position (radius from center).
             const rotateAngle = segmentAngle * index + segmentAngle / 2;
 
             return (
@@ -158,7 +156,7 @@ const RouletteWheel = ({ isSpinning }: { isSpinning: boolean }) => {
 // Main Game Component
 const RouletteGame = () => {
   const { connectionStatus } = usePushWalletContext();
-  const { pushChainClient, isInitialized } = usePushChainClient();
+  const { pushChainClient } = usePushChainClient();
   const { PushChain } = usePushChain();
   
   const [isSpinning, setIsSpinning] = useState(false);
@@ -181,14 +179,16 @@ const RouletteGame = () => {
     if (isConnected && pushChainClient) {
       setIsRefreshing(true);
       try {
-        const address = pushChainClient.universal.account;
-        // Sanitize if it's CAIP format (eip155:123:0x...)
-        const cleanAddress = address && address.includes(':') ? address.split(':').pop() : address;
-        setUserAddress(cleanAddress || '');
+        // Get account from pushChainClient (это правильный способ по документации)
+        const account = pushChainClient.universal.account;
+        
+        // Извлекаем address из account object
+        const address = account?.address || '';
+        setUserAddress(address);
 
-        if (cleanAddress) {
+        if (address) {
           const provider = new ethers.JsonRpcProvider(RPC_URL);
-          const bal = await provider.getBalance(cleanAddress);
+          const bal = await provider.getBalance(address);
           setBalance(ethers.formatEther(bal));
         }
       } catch (e) {
@@ -231,7 +231,7 @@ const RouletteGame = () => {
   };
 
   const handleSpin = async () => {
-    if (isSpinning || isProcessing || !isConnected || !pushChainClient || !isInitialized) return;
+    if (isSpinning || isProcessing || !isConnected || !pushChainClient) return;
     
     setIsProcessing(true);
     setShowResult(false);
@@ -239,24 +239,34 @@ const RouletteGame = () => {
     setError(null);
 
     try {
-      const spinData = PushChain.utils.helpers.encodeTxData({
+      // Encode transaction data using PushChain helper (правильный способ из документации)
+      const data = PushChain.utils.helpers.encodeTxData({
         abi: ROULETTE_ABI,
         functionName: 'quickSpin',
         args: []
       });
       
-      // Use dynamic spin cost and convert to BigInt for transaction
+      // Use dynamic spin cost - передаем как BigInt (из документации)
       const costInWei = ethers.parseEther(spinCost);
       
-      const txResponse = await pushChainClient.universal.sendTransaction({
+      console.log('Sending transaction with:', {
         to: CONTRACT_ADDRESS,
-        value: costInWei, // Value sent as BigInt
-        // Cast to any to avoid strict TypeScript validation error (0x string)
-        data: spinData as any,
-        gasLimit: BigInt(500000) // Manually set gas limit to avoid estimation errors on low balance
+        value: costInWei.toString(),
+        data
       });
 
-      const txReceipt = await txResponse.wait();
+      // Send transaction (точно как в примере из документации)
+      const tx = await pushChainClient.universal.sendTransaction({
+        to: CONTRACT_ADDRESS,
+        value: costInWei, // Передаем BigInt напрямую
+        data: data,
+      });
+
+      console.log('Transaction sent:', tx.hash);
+      
+      // Wait for transaction confirmation
+      const txReceipt = await tx.wait();
+      console.log('Transaction confirmed:', txReceipt);
       
       // Transaction confirmed, now start the spin animation
       setIsProcessing(false);
@@ -265,6 +275,7 @@ const RouletteGame = () => {
       // Refresh balance after spin
       fetchAccountInfo();
 
+      // Parse event logs to get prize amount
       let prizeAmount = 0;
       try {
         const iface = new ethers.Interface(ROULETTE_ABI);
@@ -273,6 +284,7 @@ const RouletteGame = () => {
             const parsed = iface.parseLog({ topics: log.topics, data: log.data });
             if (parsed && parsed.name === 'SpinRevealed') {
               prizeAmount = Number(ethers.formatUnits(parsed.args.prizeAmount, 18));
+              console.log('Prize amount from event:', prizeAmount);
               break;
             }
           } catch (e) { continue; }
@@ -293,7 +305,7 @@ const RouletteGame = () => {
         if (prize.amount > 0) {
           setTotalWins(prev => prev + prize.amount);
         }
-        setHistory(prev => [{ prize, timestamp: new Date().toLocaleTimeString(), txHash: txResponse.hash }, ...prev.slice(0, 9)]);
+        setHistory(prev => [{ prize, timestamp: new Date().toLocaleTimeString(), txHash: tx.hash }, ...prev.slice(0, 9)]);
       }, 5000);
 
     } catch (err: any) {
@@ -302,6 +314,7 @@ const RouletteGame = () => {
       setIsProcessing(false);
       
       const errorMessage = err.message || JSON.stringify(err);
+      console.log('Full error:', err);
       
       // Check for specific insufficient funds error
       if (errorMessage.includes("insufficient funds") || errorMessage.includes("exceeds the balance")) {
@@ -311,7 +324,7 @@ const RouletteGame = () => {
                 <span className="text-xs text-center">
                     The account <strong>{userAddress ? userAddress.slice(0, 6) + '...' + userAddress.slice(-4) : 'connected'}</strong> has {balance} PC.
                     <br/>
-                    Spin cost + gas requires approx {spinCost} PC.
+                    Spin cost + gas requires approx {(parseFloat(spinCost) + 0.01).toFixed(3)} PC.
                 </span>
                 <a 
                   href="https://faucet.push.org" 
@@ -324,7 +337,14 @@ const RouletteGame = () => {
             </div>
          );
       } else {
-         setError(errorMessage.slice(0, 100) + '...');
+         setError(
+           <div className="flex flex-col items-center gap-2">
+             <span className="font-bold">Transaction Failed</span>
+             <span className="text-xs text-center max-w-md break-words">
+               {errorMessage.slice(0, 200)}
+             </span>
+           </div>
+         );
       }
     }
   };
@@ -413,9 +433,9 @@ const RouletteGame = () => {
                 <div className="mt-8 text-center">
                   <button
                     onClick={handleSpin}
-                    disabled={isSpinning || isProcessing || !isInitialized}
+                    disabled={isSpinning || isProcessing || !pushChainClient}
                     className={`px-12 py-4 rounded-xl font-bold text-xl transition-all ${
-                      isSpinning || isProcessing || !isInitialized
+                      isSpinning || isProcessing || !pushChainClient
                         ? 'bg-gray-700 cursor-not-allowed'
                         : 'bg-gradient-to-r from-purple-600 to-pink-600 hover:from-purple-700 hover:to-pink-700 shadow-lg hover:shadow-purple-500/50 hover:scale-105'
                     }`}
@@ -486,7 +506,16 @@ const RouletteGame = () => {
                           </span>
                           <span className="text-xs text-gray-400">{item.timestamp}</span>
                         </div>
-                        <div className="text-xs text-gray-500 mt-1 truncate">{item.txHash}</div>
+                        {pushChainClient && (
+                          <a 
+                            href={pushChainClient.explorer.getTransactionUrl(item.txHash)}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="text-xs text-purple-400 hover:underline mt-1 truncate block"
+                          >
+                            {item.txHash}
+                          </a>
+                        )}
                       </div>
                     ))
                   )}
