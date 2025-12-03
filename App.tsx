@@ -646,7 +646,7 @@ function App() {
   };
 
   const appMetadata = {
-    logoUrl: 'https://images.unsplash.com/photo-1620321023374-d1a68fbc720d?w=400',
+    logoUrl: '/logo.png',
     title: 'Push Chain Roulette',
     description: 'Spin to win PC tokens on Push Chain Testnet'
   };
