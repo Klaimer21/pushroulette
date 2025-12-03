@@ -590,7 +590,7 @@ function App() {
   };
 
   const appMetadata = {
-    logoUrl: '/logo.png',
+    logoUrl: '/logolabel.png',
     title: 'Push Chain Roulette',
     description: 'Spin to win PC tokens on Push Chain Testnet'
   };
