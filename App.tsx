@@ -272,7 +272,7 @@ const RouletteWheel = ({
       </div>
       
       <div className="absolute top-2 left-1/2 -translate-x-1/2 z-20">
-        <div className="w-6 h-8 bg-gradient-to-b from-yellow-400 to-yellow-600 rounded-b-full shadow-lg" 
+        <div className="w-6 h-8 bg-gradient-to-b from-yellow-400 to-yellow-600 rounded-b-full shadow-lg rotate-180" 
              style={{ clipPath: 'polygon(50% 0%, 0% 100%, 100% 100%)' }} />
       </div>
     </div>
