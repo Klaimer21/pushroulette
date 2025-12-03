@@ -172,14 +172,12 @@ const RouletteWheel = ({
   const [rotation, setRotation] = useState(0);
   
   useEffect(() => {
-    // 1. Стадия ожидания (пока ждем ответ блокчейна)
+    // 1. Стадия ожидания
     if (isSpinning && prizeIndex === null) {
        setRotation(r => r + 45);
     }
 
     // 2. Стадия результата
-    // ВАЖНО: Добавлена проверка && isSpinning. 
-    // Это предотвращает повторный запуск анимации, когда родитель меняет isSpinning на false в конце игры.
     if (prizeIndex !== null && isSpinning) {
       const segmentAngle = 360 / PRIZES.length;
       
@@ -187,7 +185,8 @@ const RouletteWheel = ({
       const randomOffset = (Math.random() * 20) - 10; 
       
       const currentRotation = rotation;
-      const spins = 5 * 360;
+      // 3 секунды анимации = меньше оборотов, чтобы не мелькало
+      const spins = 4 * 360; 
       
       const remainder = currentRotation % 360;
       const adjustment = (targetBaseAngle - remainder + 360) % 360;
@@ -196,9 +195,10 @@ const RouletteWheel = ({
       
       setRotation(finalRotation);
 
+      // Таймер 3 секунды
       const timer = setTimeout(() => {
         onSpinEnd();
-      }, 5000);
+      }, 3000);
 
       return () => clearTimeout(timer);
     }
@@ -215,9 +215,9 @@ const RouletteWheel = ({
           className="w-80 h-80 rounded-full relative"
           style={{ 
             transform: `rotate(${rotation}deg)`,
-            // Анимация срабатывает, только если мы активно крутим колесо к результату
+            // Transition 3 секунды
             transition: (prizeIndex !== null && isSpinning)
-              ? 'transform 5s cubic-bezier(0.15, 0.80, 0.20, 1)' 
+              ? 'transform 3s cubic-bezier(0.15, 0.80, 0.20, 1)' 
               : 'transform 0.8s linear' 
           }}
         >
@@ -271,6 +271,7 @@ const RouletteWheel = ({
         </div>
       </div>
       
+      {/* СТРЕЛКА С ПОВОРОТОМ 180 ГРАДУСОВ */}
       <div className="absolute top-2 left-1/2 -translate-x-1/2 z-20">
         <div className="w-6 h-8 bg-gradient-to-b from-yellow-400 to-yellow-600 rounded-b-full shadow-lg rotate-180" 
              style={{ clipPath: 'polygon(50% 0%, 0% 100%, 100% 100%)' }} />
@@ -290,9 +291,12 @@ const RouletteGame = () => {
   const [prizeIndex, setPrizeIndex] = useState<number | null>(null);
   const [currentPrize, setCurrentPrize] = useState<any>(null);
   const [showResult, setShowResult] = useState(false);
+  
+  // Stats
   const [totalSpins, setTotalSpins] = useState(0);
   const [totalWins, setTotalWins] = useState(0);
   const [history, setHistory] = useState<any[]>([]);
+  
   const [error, setError] = useState<React.ReactNode | null>(null);
   const [spinCost, setSpinCost] = useState<string>('0.1'); 
   const [balance, setBalance] = useState<string>('0');
@@ -301,6 +305,7 @@ const RouletteGame = () => {
 
   const isConnected = connectionStatus === PushUI.CONSTANTS.CONNECTION.STATUS.CONNECTED;
 
+  // 1. Fetch Account Info
   const fetchAccountInfo = async () => {
     if (isConnected && pushChainClient) {
       setIsRefreshing(true);
@@ -308,7 +313,10 @@ const RouletteGame = () => {
         const account = pushChainClient.universal.account;
         const accountStr = typeof account === 'string' ? account : (account as any)?.address;
         const address = accountStr && accountStr.includes(':') ? accountStr.split(':').pop() : accountStr;
-        setUserAddress(address || '');
+        
+        if (address && address !== userAddress) {
+            setUserAddress(address);
+        }
 
         if (address) {
           const provider = new ethers.JsonRpcProvider(RPC_URL);
@@ -327,6 +335,7 @@ const RouletteGame = () => {
     fetchAccountInfo();
   }, [isConnected, pushChainClient]);
 
+  // 2. Fetch Game Global Stats
   useEffect(() => {
     const fetchGameStats = async () => {
       try {
@@ -341,18 +350,52 @@ const RouletteGame = () => {
     fetchGameStats();
   }, []);
 
+  // 3. Load Player Persistent Stats & History
+  useEffect(() => {
+    const loadPlayerStats = async () => {
+        if (!userAddress) return;
+
+        // A. Load History from LocalStorage
+        try {
+            const savedHistory = localStorage.getItem(`roulette_history_${userAddress}`);
+            if (savedHistory) {
+                setHistory(JSON.parse(savedHistory));
+            } else {
+                setHistory([]);
+            }
+        } catch (e) {
+            console.error("Failed to load local history", e);
+        }
+
+        // B. Load Total Stats from Contract (Source of Truth)
+        try {
+            const provider = new ethers.JsonRpcProvider(RPC_URL);
+            const contract = new ethers.Contract(CONTRACT_ADDRESS, ROULETTE_ABI_JSON, provider);
+            const stats = await contract.getPlayerStats(userAddress);
+            
+            setTotalSpins(Number(stats.totalSpins));
+            setTotalWins(Number(ethers.formatEther(stats.totalWins)));
+        } catch (e) {
+            console.error("Failed to fetch player stats from chain", e);
+        }
+    };
+
+    if (isConnected && userAddress) {
+        loadPlayerStats();
+    }
+  }, [userAddress, isConnected]);
+
   const handleSpin = async () => {
     if (isSpinning || isProcessing || !isConnected || !pushChainClient) return;
     
-    setIsProcessing(true); // "Waiting for confirmation..."
-    setIsSpinning(true);   // Запускаем режим вращения
+    setIsProcessing(true);
+    setIsSpinning(true);
     setShowResult(false);
     setCurrentPrize(null);
-    setPrizeIndex(null);   // Сбрасываем индекс, пока не знаем ответ контракта
+    setPrizeIndex(null);
     setError(null);
 
     try {
-      // 1. Подготовка транзакции
       const data = PushChain.utils.helpers.encodeTxData({
         abi: ROULETTE_ABI_JSON,
         functionName: 'spin',
@@ -361,7 +404,6 @@ const RouletteGame = () => {
       
       const costInWei = PushChain.utils.helpers.parseUnits(spinCost, 18);
       
-      // 2. Отправка транзакции
       const txResult = await pushChainClient.universal.sendTransaction({
         to: CONTRACT_ADDRESS,
         value: costInWei,
@@ -371,7 +413,6 @@ const RouletteGame = () => {
       const txHash = typeof txResult === 'string' ? txResult : txResult.hash;
       console.log('Transaction sent:', txHash);
       
-      // 3. Ожидание подтверждения
       const provider = new ethers.JsonRpcProvider(RPC_URL);
       const txResponse = await provider.getTransaction(txHash);
       if (!txResponse) throw new Error("Transaction not found");
@@ -379,9 +420,8 @@ const RouletteGame = () => {
       const txReceipt = await txResponse.wait();
       console.log('Transaction confirmed!');
       
-      setIsProcessing(false); // Подтверждено, переходим к фазе анимации выигрыша
+      setIsProcessing(false);
       
-      // 4. Получаем реальный выигрыш из логов события
       let prizeAmount = 0;
       try {
         const iface = new ethers.Interface(ROULETTE_ABI_JSON);
@@ -400,17 +440,13 @@ const RouletteGame = () => {
         console.warn('Log parsing failed', e);
       }
       
-      // 5. Находим приз в нашем списке
       let foundIndex = PRIZES.findIndex(p => Math.abs(p.amount - prizeAmount) < 0.001);
-      if (foundIndex === -1) foundIndex = 0; // Fallback на проигрыш
+      if (foundIndex === -1) foundIndex = 0;
 
       const prize = PRIZES[foundIndex];
       setCurrentPrize(prize);
-      
-      // 6. Устанавливаем индекс - колесо начинает крутиться к нужной точке
       setPrizeIndex(foundIndex);
       
-      // Обновляем баланс
       fetchAccountInfo();
 
     } catch (err: any) {
@@ -428,7 +464,6 @@ const RouletteGame = () => {
   };
 
   const handleAnimationComplete = () => {
-    // ВАЖНО: Останавливаем статус вращения
     setIsSpinning(false);
     setShowResult(true);
     
@@ -437,7 +472,19 @@ const RouletteGame = () => {
       if (currentPrize.amount > 0) {
         setTotalWins(prev => prev + currentPrize.amount);
       }
-      setHistory(prev => [{ prize: currentPrize, timestamp: new Date().toLocaleTimeString() }, ...prev.slice(0, 9)]);
+      
+      const newHistoryItem = { 
+        prize: currentPrize, 
+        timestamp: new Date().toLocaleTimeString() 
+      };
+
+      setHistory(prev => {
+          const updatedHistory = [newHistoryItem, ...prev.slice(0, 9)];
+          if (userAddress) {
+              localStorage.setItem(`roulette_history_${userAddress}`, JSON.stringify(updatedHistory));
+          }
+          return updatedHistory;
+      });
     }
   };
 
@@ -447,7 +494,6 @@ const RouletteGame = () => {
         <div className="container mx-auto px-4 py-4 flex justify-between items-center">
           <div className="flex items-center gap-3">
             <div className="w-10 h-10 bg-gradient-to-br from-purple-500 to-pink-500 rounded-lg flex items-center justify-center overflow-hidden p-1">
-              {/* Логотип: используется /logo.png (из папки public) и обрезка углов */}
               <img src="/logo.png" alt="Logo" className="w-full h-full object-cover rounded-md" />
             </div>
             <div>
