@@ -14,7 +14,7 @@ import {
 const CONTRACT_ADDRESS = '0x8faE1a613C2741D5db886551839355566F86874D' as const;
 const RPC_URL = 'https://evm.donut.rpc.push.org/';
 
-// === ABI ОСТАЛСЯ БЕЗ ИЗМЕНЕНИЙ ===
+// Contract ABI
 const ROULETTE_ABI_JSON = [
   {
     "type": "constructor",
@@ -160,7 +160,6 @@ const PRIZES = [
 ];
 
 // --- КОМПОНЕНТ КОЛЕСА ---
-// Логика: Принимает целевой индекс приза (prizeIndex), который мы получаем СТРОГО из блокчейна.
 const RouletteWheel = ({ 
   isSpinning, 
   prizeIndex, 
@@ -173,26 +172,21 @@ const RouletteWheel = ({
   const [rotation, setRotation] = useState(0);
   
   useEffect(() => {
-    // 1. Стадия ожидания (пока блокчейн думает): колесо немного крутится
+    // 1. Стадия ожидания (пока ждем ответ блокчейна)
     if (isSpinning && prizeIndex === null) {
-       setRotation(r => r + 45); // Просто визуальный эффект активности
+       setRotation(r => r + 45);
     }
 
-    // 2. Стадия результата: Блокчейн вернул ответ, мы знаем индекс приза
-    if (prizeIndex !== null) {
+    // 2. Стадия результата
+    // ВАЖНО: Добавлена проверка && isSpinning. 
+    // Это предотвращает повторный запуск анимации, когда родитель меняет isSpinning на false в конце игры.
+    if (prizeIndex !== null && isSpinning) {
       const segmentAngle = 360 / PRIZES.length;
       
-      // Рассчитываем угол, чтобы стрелка указала на нужный сектор
-      // (360 - (index * segmentAngle)) - смещение сектора
-      // - (segmentAngle / 2) - центрирование сектора
       const targetBaseAngle = (360 - (prizeIndex * segmentAngle)) - (segmentAngle / 2);
-      
-      // Добавляем рандом ТОЛЬКО для визуального разброса внутри одного сектора (+/- 10 град)
-      // Это не влияет на выигрыш, просто чтобы стрелка не всегда била идеально в центр
       const randomOffset = (Math.random() * 20) - 10; 
       
       const currentRotation = rotation;
-      // Делаем 5 полных оборотов + доворот до нужного угла
       const spins = 5 * 360;
       
       const remainder = currentRotation % 360;
@@ -202,7 +196,6 @@ const RouletteWheel = ({
       
       setRotation(finalRotation);
 
-      // Ждем завершения CSS анимации (5 секунд) перед показом результата
       const timer = setTimeout(() => {
         onSpinEnd();
       }, 5000);
@@ -222,8 +215,8 @@ const RouletteWheel = ({
           className="w-80 h-80 rounded-full relative"
           style={{ 
             transform: `rotate(${rotation}deg)`,
-            // Если мы знаем результат, плавно замедляемся (cubic-bezier). Если ждем блокчейн - крутимся линейно.
-            transition: prizeIndex !== null 
+            // Анимация срабатывает, только если мы активно крутим колесо к результату
+            transition: (prizeIndex !== null && isSpinning)
               ? 'transform 5s cubic-bezier(0.15, 0.80, 0.20, 1)' 
               : 'transform 0.8s linear' 
           }}
@@ -352,7 +345,7 @@ const RouletteGame = () => {
     if (isSpinning || isProcessing || !isConnected || !pushChainClient) return;
     
     setIsProcessing(true); // "Waiting for confirmation..."
-    setIsSpinning(true);   // Начинаем вращать колесо в режиме ожидания
+    setIsSpinning(true);   // Запускаем режим вращения
     setShowResult(false);
     setCurrentPrize(null);
     setPrizeIndex(null);   // Сбрасываем индекс, пока не знаем ответ контракта
@@ -368,7 +361,7 @@ const RouletteGame = () => {
       
       const costInWei = PushChain.utils.helpers.parseUnits(spinCost, 18);
       
-      // 2. Отправка в сеть
+      // 2. Отправка транзакции
       const txResult = await pushChainClient.universal.sendTransaction({
         to: CONTRACT_ADDRESS,
         value: costInWei,
@@ -378,68 +371,46 @@ const RouletteGame = () => {
       const txHash = typeof txResult === 'string' ? txResult : txResult.hash;
       console.log('Transaction sent:', txHash);
       
-      // 3. Ожидание майнинга (Здесь происходит генерация случайного числа на ноде)
+      // 3. Ожидание подтверждения
       const provider = new ethers.JsonRpcProvider(RPC_URL);
       const txResponse = await provider.getTransaction(txHash);
       if (!txResponse) throw new Error("Transaction not found");
       
       const txReceipt = await txResponse.wait();
-      console.log('Transaction confirmed, parsing events...');
+      console.log('Transaction confirmed!');
       
-      setIsProcessing(false); // Подтверждено, переходим к вычислению результата
+      setIsProcessing(false); // Подтверждено, переходим к фазе анимации выигрыша
       
-      // 4. Парсинг события SpinRevealed для получения РЕАЛЬНОГО выигрыша
+      // 4. Получаем реальный выигрыш из логов события
       let prizeAmount = 0;
-      let isOnChainRandomnessUsed = false;
-
       try {
         const iface = new ethers.Interface(ROULETTE_ABI_JSON);
         if (txReceipt && txReceipt.logs) {
             for (const log of txReceipt.logs) {
               try {
-                // Пытаемся распарсить лог с нашим ABI
                 const parsed = iface.parseLog({ topics: Array.from(log.topics), data: log.data });
-                
-                // Ищем конкретно наше событие SpinRevealed
                 if (parsed && parsed.name === 'SpinRevealed') {
-                  // Вот здесь мы берем данные, сгенерированные контрактом
-                  const rawPrize = parsed.args.prizeAmount;
-                  const rawRandomNumber = parsed.args.randomNumber; // Тот самый Random Number из контракта!
-                  
-                  console.log("🔥 ON-CHAIN RESULT:");
-                  console.log("Random Number (0-100):", rawRandomNumber.toString());
-                  console.log("Prize Amount (Wei):", rawPrize.toString());
-
-                  prizeAmount = Number(ethers.formatUnits(rawPrize, 18));
-                  isOnChainRandomnessUsed = true;
+                  prizeAmount = Number(ethers.formatUnits(parsed.args.prizeAmount, 18));
                   break;
                 }
               } catch (e) { continue; }
             }
         }
       } catch (e) {
-        console.error('Error parsing logs:', e);
+        console.warn('Log parsing failed', e);
       }
       
-      if (!isOnChainRandomnessUsed) {
-        console.warn('Event not found. Fallback logic may be needed or transaction failed silently.');
-      }
-
-      // 5. Сопоставление результата контракта с секторами колеса
-      // Ищем в нашем массиве призов тот, который по сумме совпадает с prizeAmount из контракта
+      // 5. Находим приз в нашем списке
       let foundIndex = PRIZES.findIndex(p => Math.abs(p.amount - prizeAmount) < 0.001);
-      
-      // Если вдруг приз нестандартный (чего быть не должно), ставим на "Try Again"
-      if (foundIndex === -1) foundIndex = 0;
+      if (foundIndex === -1) foundIndex = 0; // Fallback на проигрыш
 
       const prize = PRIZES[foundIndex];
       setCurrentPrize(prize);
       
-      // === Устанавливаем индекс === 
-      // Это сигнал колесу: "Контракт сказал, что мы выиграли приз №[foundIndex]. Крутись туда!"
+      // 6. Устанавливаем индекс - колесо начинает крутиться к нужной точке
       setPrizeIndex(foundIndex);
       
-      // Обновляем баланс UI
+      // Обновляем баланс
       fetchAccountInfo();
 
     } catch (err: any) {
@@ -457,6 +428,7 @@ const RouletteGame = () => {
   };
 
   const handleAnimationComplete = () => {
+    // ВАЖНО: Останавливаем статус вращения
     setIsSpinning(false);
     setShowResult(true);
     
@@ -475,6 +447,7 @@ const RouletteGame = () => {
         <div className="container mx-auto px-4 py-4 flex justify-between items-center">
           <div className="flex items-center gap-3">
             <div className="w-10 h-10 bg-gradient-to-br from-purple-500 to-pink-500 rounded-lg flex items-center justify-center overflow-hidden p-1">
+              {/* Логотип: используется /logo.png (из папки public) и обрезка углов */}
               <img src="/logo.png" alt="Logo" className="w-full h-full object-cover rounded-md" />
             </div>
             <div>
