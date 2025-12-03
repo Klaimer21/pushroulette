@@ -12,10 +12,9 @@ import {
 
 // ⚠️ REPLACE WITH YOUR DEPLOYED CONTRACT ADDRESS
 const CONTRACT_ADDRESS = '0x8faE1a613C2741D5db886551839355566F86874D' as const;
-// Official Push Chain RPC URL from documentation
 const RPC_URL = 'https://evm.donut.rpc.push.org/';
 
-// Contract ABI
+// === ABI ОСТАЛСЯ БЕЗ ИЗМЕНЕНИЙ ===
 const ROULETTE_ABI_JSON = [
   {
     "type": "constructor",
@@ -160,17 +159,60 @@ const PRIZES = [
   { amount: 1, probability: 0.5, label: '1 PC', gradient: ['#9333EA', '#7C3AED'] }
 ];
 
-// Roulette Wheel Component
-const RouletteWheel = ({ isSpinning }: { isSpinning: boolean }) => {
+// --- КОМПОНЕНТ КОЛЕСА ---
+// Логика: Принимает целевой индекс приза (prizeIndex), который мы получаем СТРОГО из блокчейна.
+const RouletteWheel = ({ 
+  isSpinning, 
+  prizeIndex, 
+  onSpinEnd 
+}: { 
+  isSpinning: boolean; 
+  prizeIndex: number | null; 
+  onSpinEnd: () => void 
+}) => {
   const [rotation, setRotation] = useState(0);
-  const segmentAngle = 360 / PRIZES.length;
   
   useEffect(() => {
-    if (isSpinning) {
-      setRotation(prev => prev + 360 * 8 + Math.random() * 360);
+    // 1. Стадия ожидания (пока блокчейн думает): колесо немного крутится
+    if (isSpinning && prizeIndex === null) {
+       setRotation(r => r + 45); // Просто визуальный эффект активности
     }
-  }, [isSpinning]);
-  
+
+    // 2. Стадия результата: Блокчейн вернул ответ, мы знаем индекс приза
+    if (prizeIndex !== null) {
+      const segmentAngle = 360 / PRIZES.length;
+      
+      // Рассчитываем угол, чтобы стрелка указала на нужный сектор
+      // (360 - (index * segmentAngle)) - смещение сектора
+      // - (segmentAngle / 2) - центрирование сектора
+      const targetBaseAngle = (360 - (prizeIndex * segmentAngle)) - (segmentAngle / 2);
+      
+      // Добавляем рандом ТОЛЬКО для визуального разброса внутри одного сектора (+/- 10 град)
+      // Это не влияет на выигрыш, просто чтобы стрелка не всегда била идеально в центр
+      const randomOffset = (Math.random() * 20) - 10; 
+      
+      const currentRotation = rotation;
+      // Делаем 5 полных оборотов + доворот до нужного угла
+      const spins = 5 * 360;
+      
+      const remainder = currentRotation % 360;
+      const adjustment = (targetBaseAngle - remainder + 360) % 360;
+      
+      const finalRotation = currentRotation + spins + adjustment + randomOffset;
+      
+      setRotation(finalRotation);
+
+      // Ждем завершения CSS анимации (5 секунд) перед показом результата
+      const timer = setTimeout(() => {
+        onSpinEnd();
+      }, 5000);
+
+      return () => clearTimeout(timer);
+    }
+  }, [prizeIndex, isSpinning]);
+
+  const segmentAngle = 360 / PRIZES.length;
+
   return (
     <div className="relative w-96 h-96 mx-auto">
       <div className="absolute inset-0 rounded-full bg-gradient-to-br from-purple-500 to-pink-500 opacity-30 blur-2xl animate-pulse" />
@@ -180,7 +222,10 @@ const RouletteWheel = ({ isSpinning }: { isSpinning: boolean }) => {
           className="w-80 h-80 rounded-full relative"
           style={{ 
             transform: `rotate(${rotation}deg)`,
-            transition: isSpinning ? 'transform 5s cubic-bezier(0.17, 0.67, 0.12, 0.99)' : 'none'
+            // Если мы знаем результат, плавно замедляемся (cubic-bezier). Если ждем блокчейн - крутимся линейно.
+            transition: prizeIndex !== null 
+              ? 'transform 5s cubic-bezier(0.15, 0.80, 0.20, 1)' 
+              : 'transform 0.8s linear' 
           }}
         >
           {PRIZES.map((prize, index) => {
@@ -249,6 +294,7 @@ const RouletteGame = () => {
   
   const [isSpinning, setIsSpinning] = useState(false);
   const [isProcessing, setIsProcessing] = useState(false);
+  const [prizeIndex, setPrizeIndex] = useState<number | null>(null);
   const [currentPrize, setCurrentPrize] = useState<any>(null);
   const [showResult, setShowResult] = useState(false);
   const [totalSpins, setTotalSpins] = useState(0);
@@ -262,16 +308,13 @@ const RouletteGame = () => {
 
   const isConnected = connectionStatus === PushUI.CONSTANTS.CONNECTION.STATUS.CONNECTED;
 
-  // Fetch Account Info & Balance
   const fetchAccountInfo = async () => {
     if (isConnected && pushChainClient) {
       setIsRefreshing(true);
       try {
         const account = pushChainClient.universal.account;
-        // In some versions account is a string, in others an object. Safely handle string.
         const accountStr = typeof account === 'string' ? account : (account as any)?.address;
         const address = accountStr && accountStr.includes(':') ? accountStr.split(':').pop() : accountStr;
-        
         setUserAddress(address || '');
 
         if (address) {
@@ -291,159 +334,138 @@ const RouletteGame = () => {
     fetchAccountInfo();
   }, [isConnected, pushChainClient]);
 
-  // Fetch Contract Stats (Real Spin Cost)
   useEffect(() => {
     const fetchGameStats = async () => {
       try {
         const provider = new ethers.JsonRpcProvider(RPC_URL);
         const contract = new ethers.Contract(CONTRACT_ADDRESS, ROULETTE_ABI_JSON, provider);
         const stats = await contract.getStats();
-        const cost = ethers.formatEther(stats.spinCost);
-        console.log("Contract spin cost:", cost);
-        setSpinCost(cost);
+        setSpinCost(ethers.formatEther(stats.spinCost));
       } catch (e) {
-        console.warn("Failed to fetch contract stats, using default cost 0.1", e);
+        console.warn("Using default cost", e);
       }
     };
     fetchGameStats();
   }, []);
 
-  const selectPrize = () => {
-    const random = Math.random() * 100;
-    let cumulative = 0;
-    for (const prize of PRIZES) {
-      cumulative += prize.probability;
-      if (random <= cumulative) return prize;
-    }
-    return PRIZES[0];
-  };
-
   const handleSpin = async () => {
     if (isSpinning || isProcessing || !isConnected || !pushChainClient) return;
     
-    setIsProcessing(true);
+    setIsProcessing(true); // "Waiting for confirmation..."
+    setIsSpinning(true);   // Начинаем вращать колесо в режиме ожидания
     setShowResult(false);
     setCurrentPrize(null);
+    setPrizeIndex(null);   // Сбрасываем индекс, пока не знаем ответ контракта
     setError(null);
 
     try {
-      // 1. Generate encoded function data using PushChain helper
-      // Use the Full JSON ABI to ensure function "spin" is found correctly
+      // 1. Подготовка транзакции
       const data = PushChain.utils.helpers.encodeTxData({
         abi: ROULETTE_ABI_JSON,
         functionName: 'spin',
         args: []
       });
       
-      // 2. Calculate value using PushChain helper
       const costInWei = PushChain.utils.helpers.parseUnits(spinCost, 18);
       
-      console.log('Sending transaction:', {
-        to: CONTRACT_ADDRESS,
-        value: costInWei.toString(),
-        data
-      });
-
-      // 3. Send the transaction using Push Chain SDK
+      // 2. Отправка в сеть
       const txResult = await pushChainClient.universal.sendTransaction({
         to: CONTRACT_ADDRESS,
-        value: costInWei, // Send BigInt directly
+        value: costInWei,
         data: data as any,
       });
 
-      // Handle potential return types (Hash string or Response object)
       const txHash = typeof txResult === 'string' ? txResult : txResult.hash;
-      console.log('Transaction sent. Hash:', txHash);
+      console.log('Transaction sent:', txHash);
       
-      // 4. Wait for transaction confirmation using standard Ethers provider
+      // 3. Ожидание майнинга (Здесь происходит генерация случайного числа на ноде)
       const provider = new ethers.JsonRpcProvider(RPC_URL);
-      console.log('Waiting for confirmation...');
-      
-      // Fetch transaction to get the object that has .wait()
       const txResponse = await provider.getTransaction(txHash);
-      if (!txResponse) throw new Error("Transaction not found on network yet.");
+      if (!txResponse) throw new Error("Transaction not found");
       
       const txReceipt = await txResponse.wait();
-      console.log('Transaction confirmed:', txReceipt);
+      console.log('Transaction confirmed, parsing events...');
       
-      // Transaction confirmed, now start the spin animation
-      setIsProcessing(false);
-      setIsSpinning(true);
+      setIsProcessing(false); // Подтверждено, переходим к вычислению результата
       
-      // Refresh balance after spin
-      fetchAccountInfo();
-
-      // Parse event logs to get prize amount
+      // 4. Парсинг события SpinRevealed для получения РЕАЛЬНОГО выигрыша
       let prizeAmount = 0;
+      let isOnChainRandomnessUsed = false;
+
       try {
         const iface = new ethers.Interface(ROULETTE_ABI_JSON);
         if (txReceipt && txReceipt.logs) {
             for (const log of txReceipt.logs) {
               try {
+                // Пытаемся распарсить лог с нашим ABI
                 const parsed = iface.parseLog({ topics: Array.from(log.topics), data: log.data });
+                
+                // Ищем конкретно наше событие SpinRevealed
                 if (parsed && parsed.name === 'SpinRevealed') {
-                  prizeAmount = Number(ethers.formatUnits(parsed.args.prizeAmount, 18));
-                  console.log('Prize amount from event:', prizeAmount);
+                  // Вот здесь мы берем данные, сгенерированные контрактом
+                  const rawPrize = parsed.args.prizeAmount;
+                  const rawRandomNumber = parsed.args.randomNumber; // Тот самый Random Number из контракта!
+                  
+                  console.log("🔥 ON-CHAIN RESULT:");
+                  console.log("Random Number (0-100):", rawRandomNumber.toString());
+                  console.log("Prize Amount (Wei):", rawPrize.toString());
+
+                  prizeAmount = Number(ethers.formatUnits(rawPrize, 18));
+                  isOnChainRandomnessUsed = true;
                   break;
                 }
               } catch (e) { continue; }
             }
         }
-      } catch (parseError) {
-        console.warn('Could not parse logs, falling back to probability', parseError);
-        const prize = selectPrize();
-        prizeAmount = prize.amount;
+      } catch (e) {
+        console.error('Error parsing logs:', e);
       }
       
-      const prize = PRIZES.find(p => Math.abs(p.amount - prizeAmount) < 0.001) || PRIZES[0];
+      if (!isOnChainRandomnessUsed) {
+        console.warn('Event not found. Fallback logic may be needed or transaction failed silently.');
+      }
 
-      setTimeout(() => {
-        setCurrentPrize(prize);
-        setIsSpinning(false);
-        setShowResult(true);
-        setTotalSpins(prev => prev + 1);
-        if (prize.amount > 0) {
-          setTotalWins(prev => prev + prize.amount);
-        }
-        setHistory(prev => [{ prize, timestamp: new Date().toLocaleTimeString(), txHash: txHash }, ...prev.slice(0, 9)]);
-      }, 5000);
+      // 5. Сопоставление результата контракта с секторами колеса
+      // Ищем в нашем массиве призов тот, который по сумме совпадает с prizeAmount из контракта
+      let foundIndex = PRIZES.findIndex(p => Math.abs(p.amount - prizeAmount) < 0.001);
+      
+      // Если вдруг приз нестандартный (чего быть не должно), ставим на "Try Again"
+      if (foundIndex === -1) foundIndex = 0;
+
+      const prize = PRIZES[foundIndex];
+      setCurrentPrize(prize);
+      
+      // === Устанавливаем индекс === 
+      // Это сигнал колесу: "Контракт сказал, что мы выиграли приз №[foundIndex]. Крутись туда!"
+      setPrizeIndex(foundIndex);
+      
+      // Обновляем баланс UI
+      fetchAccountInfo();
 
     } catch (err: any) {
-      console.error('Transaction failed:', err);
+      console.error('Failed:', err);
       setIsSpinning(false);
       setIsProcessing(false);
       
       const errorMessage = err.message || JSON.stringify(err);
-      
-      if (errorMessage.includes("insufficient funds") || errorMessage.includes("exceeds the balance")) {
-         setError(
-            <div className="flex flex-col items-center gap-2">
-                <span className="font-bold">Insufficient Balance!</span>
-                <span className="text-xs text-center">
-                    The account <strong>{userAddress ? userAddress.slice(0, 6) + '...' + userAddress.slice(-4) : 'connected'}</strong> has {balance} PC.
-                    <br/>
-                    Spin cost + gas requires approx {(parseFloat(spinCost) + 0.01).toFixed(3)} PC.
-                </span>
-                <a 
-                  href="https://faucet.push.org" 
-                  target="_blank" 
-                  rel="noopener noreferrer"
-                  className="bg-yellow-500 hover:bg-yellow-600 text-black px-4 py-2 rounded-lg font-bold text-sm mt-2"
-                >
-                  Get Free Testnet Tokens ↗
-                </a>
-            </div>
-         );
+      if (errorMessage.includes("insufficient funds")) {
+         setError(<div className="text-center">Insufficient Balance</div>);
       } else {
-         setError(
-           <div className="flex flex-col items-center gap-2">
-             <span className="font-bold">Transaction Failed</span>
-             <span className="text-xs text-center max-w-md break-words">
-               {errorMessage.slice(0, 200)}
-             </span>
-           </div>
-         );
+         setError(<div className="text-center">Transaction Failed</div>);
       }
+    }
+  };
+
+  const handleAnimationComplete = () => {
+    setIsSpinning(false);
+    setShowResult(true);
+    
+    if (currentPrize) {
+      setTotalSpins(prev => prev + 1);
+      if (currentPrize.amount > 0) {
+        setTotalWins(prev => prev + currentPrize.amount);
+      }
+      setHistory(prev => [{ prize: currentPrize, timestamp: new Date().toLocaleTimeString() }, ...prev.slice(0, 9)]);
     }
   };
 
@@ -453,7 +475,7 @@ const RouletteGame = () => {
         <div className="container mx-auto px-4 py-4 flex justify-between items-center">
           <div className="flex items-center gap-3">
             <div className="w-10 h-10 bg-gradient-to-br from-purple-500 to-pink-500 rounded-lg flex items-center justify-center overflow-hidden p-1">
-              <img src="/logo.png" alt="Logo" className="w-full h-full object-contain" />
+              <img src="/logo.png" alt="Logo" className="w-full h-full object-cover rounded-md" />
             </div>
             <div>
               <h1 className="text-2xl font-bold">Push Chain Roulette</h1>
@@ -469,13 +491,7 @@ const RouletteGame = () => {
                  </div>
                  <div className="text-sm font-bold flex items-center gap-2">
                     {parseFloat(balance).toFixed(4)} PC
-                    <button 
-                      onClick={fetchAccountInfo} 
-                      className={`text-gray-400 hover:text-white ${isRefreshing ? 'animate-spin' : ''}`}
-                      title="Refresh Balance"
-                    >
-                      ↻
-                    </button>
+                    <button onClick={fetchAccountInfo} className={`text-gray-400 hover:text-white ${isRefreshing ? 'animate-spin' : ''}`}>↻</button>
                  </div>
               </div>
             )}
@@ -490,23 +506,22 @@ const RouletteGame = () => {
             <div className="bg-gray-800/50 backdrop-blur-sm rounded-2xl p-12 border border-purple-800/30">
               <div className="text-6xl mb-6">🎰</div>
               <h2 className="text-3xl font-bold mb-4">Connect Your Wallet</h2>
-              <p className="text-gray-400 mb-8">
-                Connect your wallet to start playing Push Chain Roulette. 
-                Support for EVM, Solana, and email login.
-              </p>
-              <div className="text-yellow-400 mb-6">
-                1 spin = {spinCost} PC • Win up to 1 PC!
-              </div>
+              <PushUniversalAccountButton />
             </div>
           </div>
         ) : (
           <div className="grid lg:grid-cols-3 gap-6">
             <div className="lg:col-span-2">
               <div className="bg-gray-800/50 backdrop-blur-sm rounded-2xl p-8 border border-purple-800/30">
-                <RouletteWheel isSpinning={isSpinning} />
+                
+                <RouletteWheel 
+                  isSpinning={isSpinning} 
+                  prizeIndex={prizeIndex} 
+                  onSpinEnd={handleAnimationComplete} 
+                />
                 
                 {showResult && currentPrize && (
-                  <div className="mt-6 text-center">
+                  <div className="mt-6 text-center animate-bounce">
                     <div className={`inline-block px-6 py-3 rounded-xl ${
                       currentPrize.amount > 0 ? 'bg-gradient-to-r from-green-500 to-emerald-500' : 'bg-gray-700'
                     }`}>
@@ -533,19 +548,13 @@ const RouletteGame = () => {
                     onClick={handleSpin}
                     disabled={isSpinning || isProcessing || !pushChainClient}
                     className={`px-12 py-4 rounded-xl font-bold text-xl transition-all ${
-                      isSpinning || isProcessing || !pushChainClient
+                      isSpinning || isProcessing
                         ? 'bg-gray-700 cursor-not-allowed'
                         : 'bg-gradient-to-r from-purple-600 to-pink-600 hover:from-purple-700 hover:to-pink-700 shadow-lg hover:shadow-purple-500/50 hover:scale-105'
                     }`}
                   >
-                    {isSpinning ? 'Spinning...' : isProcessing ? 'Confirming...' : `Spin (${spinCost} PC)`}
+                    {isProcessing ? 'Waiting for block...' : isSpinning ? 'Spinning...' : `Spin (${spinCost} PC)`}
                   </button>
-                  <div className="mt-2">
-                     <span className="text-gray-500 text-xs mr-2">Balance: {parseFloat(balance).toFixed(3)} PC</span>
-                    <a href="https://faucet.push.org" target="_blank" className="text-yellow-400 text-xs hover:underline">
-                        Get Testnet Tokens
-                    </a>
-                  </div>
                 </div>
               </div>
 
@@ -575,73 +584,36 @@ const RouletteGame = () => {
                     <span className="text-gray-400">Total Wins</span>
                     <span className="font-bold text-xl text-green-400">{totalWins.toFixed(2)} PC</span>
                   </div>
-                  <div className="flex justify-between items-center">
-                    <span className="text-gray-400">Net P/L</span>
-                    <span className={`font-bold text-xl ${
-                      totalWins - totalSpins * parseFloat(spinCost) >= 0 ? 'text-green-400' : 'text-red-400'
-                    }`}>
-                      {(totalWins - totalSpins * parseFloat(spinCost)).toFixed(2)} PC
-                    </span>
-                  </div>
                 </div>
               </div>
 
               <div className="bg-gray-800/50 backdrop-blur-sm rounded-2xl p-6 border border-purple-800/30">
                 <h3 className="text-xl font-bold mb-4">Recent Spins</h3>
                 <div className="space-y-2 max-h-96 overflow-y-auto">
-                  {history.length === 0 ? (
-                    <div className="text-center text-gray-400 py-8">
-                      <div className="text-5xl mb-2">🎰</div>
-                      <p>No spins yet.</p>
-                      <p className="text-sm">Try your luck!</p>
-                    </div>
-                  ) : (
-                    history.map((item, index) => (
-                      <div key={index} className="bg-gray-700/50 rounded-lg p-3 hover:bg-gray-700 transition-colors">
+                    {history.map((item, index) => (
+                      <div key={index} className="bg-gray-700/50 rounded-lg p-3">
                         <div className="flex justify-between items-center">
                           <span className={`font-bold ${item.prize.amount > 0 ? 'text-green-400' : 'text-gray-400'}`}>
                             {item.prize.amount > 0 ? `+${item.prize.amount} PC` : 'No win'}
                           </span>
                           <span className="text-xs text-gray-400">{item.timestamp}</span>
                         </div>
-                        {pushChainClient && (
-                          <a 
-                            href={pushChainClient.explorer.getTransactionUrl(item.txHash)}
-                            target="_blank"
-                            rel="noopener noreferrer"
-                            className="text-xs text-purple-400 hover:underline mt-1 truncate block"
-                          >
-                            {item.txHash}
-                          </a>
-                        )}
                       </div>
-                    ))
-                  )}
+                    ))}
                 </div>
               </div>
             </div>
           </div>
         )}
       </div>
-
-      <footer className="mt-12 border-t border-purple-800/30 py-6">
-        <div className="container mx-auto px-4 text-center text-gray-400 text-sm">
-          <p>Push Chain Testnet • Powered by Community • Play Responsibly</p>
-        </div>
-      </footer>
     </div>
   );
 };
 
-// App Root Component
 function App() {
   const walletConfig = {
     network: PushUI.CONSTANTS.PUSH_NETWORK.TESTNET,
-    login: {
-      email: true,
-      google: true,
-      wallet: { enabled: true }
-    }
+    login: { email: true, google: true, wallet: { enabled: true } }
   };
 
   const appMetadata = {
