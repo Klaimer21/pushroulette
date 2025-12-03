@@ -1,6 +1,5 @@
 import React, { useState, useEffect } from 'react';
 import { ethers } from 'ethers';
-import logoIMG from './logo.png';
 // Push Chain SDK Imports
 import {
   PushUniversalWalletProvider,
@@ -454,7 +453,7 @@ const RouletteGame = () => {
         <div className="container mx-auto px-4 py-4 flex justify-between items-center">
           <div className="flex items-center gap-3">
             <div className="w-10 h-10 bg-gradient-to-br from-purple-500 to-pink-500 rounded-lg flex items-center justify-center overflow-hidden p-1">
-              <img src={logoImg} alt="Logo" className="w-full h-full object-contain" />
+              <img src="./logo.png" alt="Logo" className="w-full h-full object-contain" />
             </div>
             <div>
               <h1 className="text-2xl font-bold">Push Chain Roulette</h1>
