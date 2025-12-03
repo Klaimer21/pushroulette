@@ -12,7 +12,7 @@ import {
 } from '@pushchain/ui-kit';
 
 // ⚠️ REPLACE WITH YOUR DEPLOYED CONTRACT ADDRESS
-const CONTRACT_ADDRESS = '0xda2428f678902607e0360AD630266AFde96e4F30' as const;
+const CONTRACT_ADDRESS = '0x8faE1a613C2741D5db886551839355566F86874D' as const;
 const RPC_URL = 'https://evm.donut.rpc.push.org/';
 
 // Updated ABI matching the fixed contract
