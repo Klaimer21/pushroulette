@@ -422,7 +422,7 @@ const RouletteGame = () => {
       if (errorMessage.includes("insufficient funds")) {
          setError(<div className="text-center">Insufficient Balance</div>);
       } else {
-         setError(<div className="text-center">Wait 30 seconds to spin again.</div>);
+         setError(<div className="text-center">Transaction failed</div>);
       }
     }
   };
