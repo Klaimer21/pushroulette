@@ -11,144 +11,422 @@ import {
 } from '@pushchain/ui-kit';
 
 // ⚠️ REPLACE WITH YOUR DEPLOYED CONTRACT ADDRESS
-const CONTRACT_ADDRESS = '0x8faE1a613C2741D5db886551839355566F86874D' as const;
+const CONTRACT_ADDRESS = '0x2A4a275b3eD787e7124e7362eacE92018129aE47' as const;
 const RPC_URL = 'https://evm.donut.rpc.push.org/';
 
 // Contract ABI
 const ROULETTE_ABI_JSON = [
   {
-    "type": "constructor",
     "inputs": [],
-    "stateMutability": "nonpayable"
+    "stateMutability": "nonpayable",
+    "type": "constructor"
   },
   {
-    "type": "function",
-    "name": "spin",
-    "inputs": [],
-    "outputs": [
+    "inputs": [
       {
-        "name": "prize",
-        "type": "uint256",
-        "internalType": "uint256"
+        "internalType": "uint256",
+        "name": "sent",
+        "type": "uint256"
+      },
+      {
+        "internalType": "uint256",
+        "name": "required",
+        "type": "uint256"
       }
     ],
-    "stateMutability": "payable"
+    "name": "IncorrectBetAmount",
+    "type": "error"
   },
   {
-    "type": "function",
-    "name": "getStats",
+    "inputs": [
+      {
+        "internalType": "uint256",
+        "name": "required",
+        "type": "uint256"
+      },
+      {
+        "internalType": "uint256",
+        "name": "available",
+        "type": "uint256"
+      }
+    ],
+    "name": "InsufficientHouseBalance",
+    "type": "error"
+  },
+  {
     "inputs": [],
+    "name": "TransferFailed",
+    "type": "error"
+  },
+  {
+    "anonymous": false,
+    "inputs": [
+      {
+        "indexed": true,
+        "internalType": "address",
+        "name": "depositor",
+        "type": "address"
+      },
+      {
+        "indexed": false,
+        "internalType": "uint256",
+        "name": "amount",
+        "type": "uint256"
+      }
+    ],
+    "name": "FundsDeposited",
+    "type": "event"
+  },
+  {
+    "anonymous": false,
+    "inputs": [
+      {
+        "indexed": true,
+        "internalType": "address",
+        "name": "owner",
+        "type": "address"
+      },
+      {
+        "indexed": false,
+        "internalType": "uint256",
+        "name": "amount",
+        "type": "uint256"
+      }
+    ],
+    "name": "FundsWithdrawn",
+    "type": "event"
+  },
+  {
+    "anonymous": false,
+    "inputs": [
+      {
+        "indexed": true,
+        "internalType": "address",
+        "name": "previousOwner",
+        "type": "address"
+      },
+      {
+        "indexed": true,
+        "internalType": "address",
+        "name": "newOwner",
+        "type": "address"
+      }
+    ],
+    "name": "OwnershipTransferred",
+    "type": "event"
+  },
+  {
+    "anonymous": false,
+    "inputs": [
+      {
+        "indexed": false,
+        "internalType": "address",
+        "name": "account",
+        "type": "address"
+      }
+    ],
+    "name": "Paused",
+    "type": "event"
+  },
+  {
+    "anonymous": false,
+    "inputs": [
+      {
+        "indexed": true,
+        "internalType": "address",
+        "name": "player",
+        "type": "address"
+      },
+      {
+        "indexed": false,
+        "internalType": "uint256",
+        "name": "betAmount",
+        "type": "uint256"
+      },
+      {
+        "indexed": false,
+        "internalType": "uint256",
+        "name": "prizeAmount",
+        "type": "uint256"
+      },
+      {
+        "indexed": false,
+        "internalType": "uint256",
+        "name": "randomNumber",
+        "type": "uint256"
+      },
+      {
+        "indexed": false,
+        "internalType": "uint256",
+        "name": "timestamp",
+        "type": "uint256"
+      }
+    ],
+    "name": "SpinRevealed",
+    "type": "event"
+  },
+  {
+    "anonymous": false,
+    "inputs": [
+      {
+        "indexed": false,
+        "internalType": "address",
+        "name": "account",
+        "type": "address"
+      }
+    ],
+    "name": "Unpaused",
+    "type": "event"
+  },
+  {
+    "stateMutability": "payable",
+    "type": "fallback"
+  },
+  {
+    "inputs": [],
+    "name": "depositFunds",
+    "outputs": [],
+    "stateMutability": "payable",
+    "type": "function"
+  },
+  {
+    "inputs": [],
+    "name": "emergencyWithdraw",
+    "outputs": [],
+    "stateMutability": "nonpayable",
+    "type": "function"
+  },
+  {
+    "inputs": [],
+    "name": "getStats",
     "outputs": [
       {
+        "internalType": "uint256",
         "name": "contractBalance",
         "type": "uint256"
       },
       {
+        "internalType": "uint256",
         "name": "availableBalance",
         "type": "uint256"
       },
       {
+        "internalType": "uint256",
         "name": "spinCost",
         "type": "uint256"
       },
       {
+        "internalType": "bool",
         "name": "isPaused",
         "type": "bool"
       }
     ],
-    "stateMutability": "view"
+    "stateMutability": "view",
+    "type": "function"
   },
   {
-    "type": "function",
-    "name": "getPlayerStats",
     "inputs": [
       {
+        "internalType": "address",
         "name": "player",
         "type": "address"
       }
     ],
+    "name": "getPlayerStats",
     "outputs": [
       {
+        "internalType": "uint256",
         "name": "totalSpins",
         "type": "uint256"
       },
       {
+        "internalType": "uint256",
         "name": "totalWins",
         "type": "uint256"
       },
       {
+        "internalType": "uint256",
         "name": "lastSpinTime",
         "type": "uint256"
-      },
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [],
+    "name": "houseBalance",
+    "outputs": [
       {
-        "name": "canSpinAgainAt",
+        "internalType": "uint256",
+        "name": "",
         "type": "uint256"
       }
     ],
-    "stateMutability": "view"
+    "stateMutability": "view",
+    "type": "function"
   },
   {
-    "type": "event",
-    "name": "SpinRevealed",
-    "inputs": [
-      {
-        "name": "player",
-        "type": "address",
-        "indexed": true
-      },
-      {
-        "name": "betAmount",
-        "type": "uint256",
-        "indexed": false
-      },
-      {
-        "name": "prizeAmount",
-        "type": "uint256",
-        "indexed": false
-      },
-      {
-        "name": "randomNumber",
-        "type": "uint256",
-        "indexed": false
-      },
-      {
-        "name": "timestamp",
-        "type": "uint256",
-        "indexed": false
-      }
-    ],
-    "anonymous": false
-  },
-  {
-    "type": "function",
-    "name": "owner",
     "inputs": [],
+    "name": "owner",
     "outputs": [
       {
+        "internalType": "address",
+        "name": "",
         "type": "address"
       }
     ],
-    "stateMutability": "view"
+    "stateMutability": "view",
+    "type": "function"
   },
   {
-    "type": "function",
+    "inputs": [],
     "name": "pause",
-    "inputs": [],
     "outputs": [],
-    "stateMutability": "nonpayable"
+    "stateMutability": "nonpayable",
+    "type": "function"
   },
   {
-    "type": "function",
-    "name": "paused",
     "inputs": [],
+    "name": "paused",
     "outputs": [
       {
+        "internalType": "bool",
+        "name": "",
         "type": "bool"
       }
     ],
-    "stateMutability": "view"
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "address",
+        "name": "",
+        "type": "address"
+      }
+    ],
+    "name": "playerLastSpinTime",
+    "outputs": [
+      {
+        "internalType": "uint256",
+        "name": "",
+        "type": "uint256"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "address",
+        "name": "",
+        "type": "address"
+      }
+    ],
+    "name": "playerTotalSpins",
+    "outputs": [
+      {
+        "internalType": "uint256",
+        "name": "",
+        "type": "uint256"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "address",
+        "name": "",
+        "type": "address"
+      }
+    ],
+    "name": "playerTotalWins",
+    "outputs": [
+      {
+        "internalType": "uint256",
+        "name": "",
+        "type": "uint256"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [],
+    "name": "renounceOwnership",
+    "outputs": [],
+    "stateMutability": "nonpayable",
+    "type": "function"
+  },
+  {
+    "inputs": [],
+    "name": "spin",
+    "outputs": [
+      {
+        "internalType": "uint256",
+        "name": "prize",
+        "type": "uint256"
+      }
+    ],
+    "stateMutability": "payable",
+    "type": "function"
+  },
+  {
+    "inputs": [],
+    "name": "SPIN_COST",
+    "outputs": [
+      {
+        "internalType": "uint256",
+        "name": "",
+        "type": "uint256"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "address",
+        "name": "newOwner",
+        "type": "address"
+      }
+    ],
+    "name": "transferOwnership",
+    "outputs": [],
+    "stateMutability": "nonpayable",
+    "type": "function"
+  },
+  {
+    "inputs": [],
+    "name": "unpause",
+    "outputs": [],
+    "stateMutability": "nonpayable",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "uint256",
+        "name": "amount",
+        "type": "uint256"
+      }
+    ],
+    "name": "withdrawFunds",
+    "outputs": [],
+    "stateMutability": "nonpayable",
+    "type": "function"
+  },
+  {
+    "stateMutability": "payable",
+    "type": "receive"
   }
-];
+]
 
 const PRIZES = [
   { amount: 0, probability: 60, label: 'Try Again', gradient: ['#4B5563', '#374151'] },
