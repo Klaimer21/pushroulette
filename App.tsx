@@ -453,8 +453,8 @@ const RouletteGame = () => {
       <header className="border-b border-purple-800/30 backdrop-blur-sm bg-gray-900/50 sticky top-0 z-50">
         <div className="container mx-auto px-4 py-4 flex justify-between items-center">
           <div className="flex items-center gap-3">
-            <div className="w-10 h-10 bg-gradient-to-br from-purple-500 to-pink-500 rounded-lg flex items-center justify-center text-2xl">
-              🎰
+            <div className="w-10 h-10 bg-gradient-to-br from-purple-500 to-pink-500 rounded-lg flex items-center justify-center overflow-hidden p-1">
+              <img src="/logo.png" alt="Logo" className="w-full h-full object-contain" />
             </div>
             <div>
               <h1 className="text-2xl font-bold">Push Chain Roulette</h1>
@@ -627,7 +627,7 @@ const RouletteGame = () => {
 
       <footer className="mt-12 border-t border-purple-800/30 py-6">
         <div className="container mx-auto px-4 text-center text-gray-400 text-sm">
-          <p>Push Chain Testnet • Powered by Push Protocol • Play Responsibly</p>
+          <p>Push Chain Testnet • Powered by Community • Play Responsibly</p>
         </div>
       </footer>
     </div>
