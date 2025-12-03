@@ -14,7 +14,7 @@ import {
 // ⚠️ REPLACE WITH YOUR DEPLOYED CONTRACT ADDRESS
 const CONTRACT_ADDRESS = '0xda2428f678902607e0360AD630266AFde96e4F30' as const;
 // Official Push Chain RPC URL from documentation
-const RPC_URL = 'https://evm.rpc-testnet-donut-node1.push.org/';
+const RPC_URL = 'https://evm.donut.rpc.push.org/';
 
 // Contract ABI (Full JSON provided by user)
 const ROULETTE_ABI_JSON = [
