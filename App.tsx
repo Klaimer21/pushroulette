@@ -12,10 +12,11 @@ import {
 } from '@pushchain/ui-kit';
 
 // ⚠️ REPLACE WITH YOUR DEPLOYED CONTRACT ADDRESS
-const CONTRACT_ADDRESS = '0x8faE1a613C2741D5db886551839355566F86874D' as const;
+const CONTRACT_ADDRESS = '0xda2428f678902607e0360AD630266AFde96e4F30' as const;
+// Official Push Chain RPC URL from documentation
 const RPC_URL = 'https://evm.donut.rpc.push.org/';
 
-// Updated ABI matching the fixed contract
+// Contract ABI
 const ROULETTE_ABI_JSON = [
   {
     "type": "constructor",
@@ -152,40 +153,24 @@ const ROULETTE_ABI_JSON = [
 ];
 
 const PRIZES = [
-  { amount: 0, probability: 60, label: 'Try Again', gradient: ['#4B5563', '#374151'], randomRange: [0, 599] },
-  { amount: 0.05, probability: 30, label: '0.05 PC', gradient: ['#3B82F6', '#2563EB'], randomRange: [600, 899] },
-  { amount: 0.1, probability: 5, label: '0.1 PC', gradient: ['#10B981', '#059669'], randomRange: [900, 949] },
-  { amount: 0.2, probability: 3, label: '0.2 PC', gradient: ['#F59E0B', '#D97706'], randomRange: [950, 979] },
-  { amount: 0.5, probability: 1.5, label: '0.5 PC', gradient: ['#F97316', '#EA580C'], randomRange: [980, 994] },
-  { amount: 1, probability: 0.5, label: '1 PC', gradient: ['#9333EA', '#7C3AED'], randomRange: [995, 999] }
+  { amount: 0, probability: 60, label: 'Try Again', gradient: ['#4B5563', '#374151'] },
+  { amount: 0.05, probability: 30, label: '0.05 PC', gradient: ['#3B82F6', '#2563EB'] },
+  { amount: 0.1, probability: 5, label: '0.1 PC', gradient: ['#10B981', '#059669'] },
+  { amount: 0.2, probability: 3, label: '0.2 PC', gradient: ['#F59E0B', '#D97706'] },
+  { amount: 0.5, probability: 1.5, label: '0.5 PC', gradient: ['#F97316', '#EA580C'] },
+  { amount: 1, probability: 0.5, label: '1 PC', gradient: ['#9333EA', '#7C3AED'] }
 ];
 
-// Helper function to get prize from random number
-const getPrizeFromRandomNumber = (randomNumber: number) => {
-  return PRIZES.find(p => randomNumber >= p.randomRange[0] && randomNumber <= p.randomRange[1]) || PRIZES[0];
-};
-
-// Helper function to calculate rotation based on random number
-const getRotationFromRandomNumber = (randomNumber: number) => {
-  const prizeIndex = PRIZES.findIndex(p => randomNumber >= p.randomRange[0] && randomNumber <= p.randomRange[1]);
-  const segmentAngle = 360 / PRIZES.length;
-  // Rotate to the middle of the segment, accounting for the pointer at top
-  const targetAngle = (prizeIndex * segmentAngle) + (segmentAngle / 2);
-  // Add multiple full rotations for effect
-  const spins = 8;
-  return (360 * spins) + targetAngle;
-};
-
 // Roulette Wheel Component
-const RouletteWheel = ({ isSpinning, targetRotation }: { isSpinning: boolean; targetRotation: number }) => {
+const RouletteWheel = ({ isSpinning }: { isSpinning: boolean }) => {
   const [rotation, setRotation] = useState(0);
   const segmentAngle = 360 / PRIZES.length;
   
   useEffect(() => {
-    if (isSpinning && targetRotation > 0) {
-      setRotation(targetRotation);
+    if (isSpinning) {
+      setRotation(prev => prev + 360 * 8 + Math.random() * 360);
     }
-  }, [isSpinning, targetRotation]);
+  }, [isSpinning]);
   
   return (
     <div className="relative w-96 h-96 mx-auto">
@@ -275,7 +260,6 @@ const RouletteGame = () => {
   const [balance, setBalance] = useState<string>('0');
   const [userAddress, setUserAddress] = useState<string>('');
   const [isRefreshing, setIsRefreshing] = useState(false);
-  const [targetRotation, setTargetRotation] = useState(0);
 
   const isConnected = connectionStatus === PushUI.CONSTANTS.CONNECTION.STATUS.CONNECTED;
 
@@ -285,6 +269,7 @@ const RouletteGame = () => {
       setIsRefreshing(true);
       try {
         const account = pushChainClient.universal.account;
+        // In some versions account is a string, in others an object. Safely handle string.
         const accountStr = typeof account === 'string' ? account : (account as any)?.address;
         const address = accountStr && accountStr.includes(':') ? accountStr.split(':').pop() : accountStr;
         
@@ -307,7 +292,7 @@ const RouletteGame = () => {
     fetchAccountInfo();
   }, [isConnected, pushChainClient]);
 
-  // Fetch Contract Stats
+  // Fetch Contract Stats (Real Spin Cost)
   useEffect(() => {
     const fetchGameStats = async () => {
       try {
@@ -315,6 +300,7 @@ const RouletteGame = () => {
         const contract = new ethers.Contract(CONTRACT_ADDRESS, ROULETTE_ABI_JSON, provider);
         const stats = await contract.getStats();
         const cost = ethers.formatEther(stats.spinCost);
+        console.log("Contract spin cost:", cost);
         setSpinCost(cost);
       } catch (e) {
         console.warn("Failed to fetch contract stats, using default cost 0.1", e);
@@ -322,6 +308,16 @@ const RouletteGame = () => {
     };
     fetchGameStats();
   }, []);
+
+  const selectPrize = () => {
+    const random = Math.random() * 100;
+    let cumulative = 0;
+    for (const prize of PRIZES) {
+      cumulative += prize.probability;
+      if (random <= cumulative) return prize;
+    }
+    return PRIZES[0];
+  };
 
   const handleSpin = async () => {
     if (isSpinning || isProcessing || !isConnected || !pushChainClient) return;
@@ -332,13 +328,15 @@ const RouletteGame = () => {
     setError(null);
 
     try {
-      // Generate encoded function data
+      // 1. Generate encoded function data using PushChain helper
+      // Use the Full JSON ABI to ensure function "spin" is found correctly
       const data = PushChain.utils.helpers.encodeTxData({
         abi: ROULETTE_ABI_JSON,
         functionName: 'spin',
         args: []
       });
       
+      // 2. Calculate value using PushChain helper
       const costInWei = PushChain.utils.helpers.parseUnits(spinCost, 18);
       
       console.log('Sending transaction:', {
@@ -347,63 +345,59 @@ const RouletteGame = () => {
         data
       });
 
-      // Send transaction
+      // 3. Send the transaction using Push Chain SDK
       const txResult = await pushChainClient.universal.sendTransaction({
         to: CONTRACT_ADDRESS,
-        value: costInWei,
+        value: costInWei, // Send BigInt directly
         data: data as any,
       });
 
+      // Handle potential return types (Hash string or Response object)
       const txHash = typeof txResult === 'string' ? txResult : txResult.hash;
       console.log('Transaction sent. Hash:', txHash);
       
-      // Wait for confirmation
+      // 4. Wait for transaction confirmation using standard Ethers provider
       const provider = new ethers.JsonRpcProvider(RPC_URL);
+      console.log('Waiting for confirmation...');
+      
+      // Fetch transaction to get the object that has .wait()
       const txResponse = await provider.getTransaction(txHash);
       if (!txResponse) throw new Error("Transaction not found on network yet.");
       
       const txReceipt = await txResponse.wait();
       console.log('Transaction confirmed:', txReceipt);
       
-      // Parse event logs to get prize and random number
-      let prizeAmount = 0;
-      let randomNumber = 0;
+      // Transaction confirmed, now start the spin animation
+      setIsProcessing(false);
+      setIsSpinning(true);
       
+      // Refresh balance after spin
+      fetchAccountInfo();
+
+      // Parse event logs to get prize amount
+      let prizeAmount = 0;
       try {
         const iface = new ethers.Interface(ROULETTE_ABI_JSON);
         if (txReceipt && txReceipt.logs) {
-          for (const log of txReceipt.logs) {
-            try {
-              const parsed = iface.parseLog({ topics: Array.from(log.topics), data: log.data });
-              if (parsed && parsed.name === 'SpinRevealed') {
-                prizeAmount = Number(ethers.formatEther(parsed.args.prizeAmount));
-                randomNumber = Number(parsed.args.randomNumber);
-                console.log('Prize from contract:', prizeAmount, 'Random number:', randomNumber);
-                break;
-              }
-            } catch (e) { continue; }
-          }
+            for (const log of txReceipt.logs) {
+              try {
+                const parsed = iface.parseLog({ topics: Array.from(log.topics), data: log.data });
+                if (parsed && parsed.name === 'SpinRevealed') {
+                  prizeAmount = Number(ethers.formatUnits(parsed.args.prizeAmount, 18));
+                  console.log('Prize amount from event:', prizeAmount);
+                  break;
+                }
+              } catch (e) { continue; }
+            }
         }
       } catch (parseError) {
-        console.error('Could not parse logs:', parseError);
-        throw new Error('Failed to parse transaction result');
+        console.warn('Could not parse logs, falling back to probability', parseError);
+        const prize = selectPrize();
+        prizeAmount = prize.amount;
       }
       
-      // Get the prize that matches the contract result
-      const prize = getPrizeFromRandomNumber(randomNumber);
-      
-      // Calculate rotation based on random number
-      const rotation = getRotationFromRandomNumber(randomNumber);
-      
-      // Start spinning animation
-      setIsProcessing(false);
-      setIsSpinning(true);
-      setTargetRotation(rotation);
-      
-      // Refresh balance
-      fetchAccountInfo();
+      const prize = PRIZES.find(p => Math.abs(p.amount - prizeAmount) < 0.001) || PRIZES[0];
 
-      // Show result after animation
       setTimeout(() => {
         setCurrentPrize(prize);
         setIsSpinning(false);
@@ -412,15 +406,7 @@ const RouletteGame = () => {
         if (prize.amount > 0) {
           setTotalWins(prev => prev + prize.amount);
         }
-        setHistory(prev => [
-          { 
-            prize, 
-            timestamp: new Date().toLocaleTimeString(), 
-            txHash: txHash,
-            randomNumber 
-          }, 
-          ...prev.slice(0, 9)
-        ]);
+        setHistory(prev => [{ prize, timestamp: new Date().toLocaleTimeString(), txHash: txHash }, ...prev.slice(0, 9)]);
       }, 5000);
 
     } catch (err: any) {
@@ -472,7 +458,7 @@ const RouletteGame = () => {
             </div>
             <div>
               <h1 className="text-2xl font-bold">Push Chain Roulette</h1>
-              <p className="text-xs text-gray-400">Testnet • Synced Results</p>
+              <p className="text-xs text-gray-400">Testnet</p>
             </div>
           </div>
           
@@ -518,7 +504,7 @@ const RouletteGame = () => {
           <div className="grid lg:grid-cols-3 gap-6">
             <div className="lg:col-span-2">
               <div className="bg-gray-800/50 backdrop-blur-sm rounded-2xl p-8 border border-purple-800/30">
-                <RouletteWheel isSpinning={isSpinning} targetRotation={targetRotation} />
+                <RouletteWheel isSpinning={isSpinning} />
                 
                 {showResult && currentPrize && (
                   <div className="mt-6 text-center">
@@ -619,9 +605,6 @@ const RouletteGame = () => {
                           </span>
                           <span className="text-xs text-gray-400">{item.timestamp}</span>
                         </div>
-                        <div className="text-xs text-gray-500 mt-1">
-                          Random: {item.randomNumber}
-                        </div>
                         {pushChainClient && (
                           <a 
                             href={pushChainClient.explorer.getTransactionUrl(item.txHash)}
@@ -644,7 +627,7 @@ const RouletteGame = () => {
 
       <footer className="mt-12 border-t border-purple-800/30 py-6">
         <div className="container mx-auto px-4 text-center text-gray-400 text-sm">
-          <p>Push Chain Testnet • Powered by Push Protocol • Results verified on-chain ✓</p>
+          <p>Push Chain Testnet • Powered by Push Protocol • Play Responsibly</p>
         </div>
       </footer>
     </div>
